@@ -1,0 +1,449 @@
+---
+title: "Raport  listy 1"
+subtitle: "Eksploracja danych"
+author: "Maciej Kowalski 275936"
+date: "`r Sys.Date()`"
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+output: 
+  pdf_document:
+    toc: true
+    fig_caption: yes
+    fig_width: 5 
+    fig_height: 4 
+    number_sections: true
+fontsize: 12pt 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+```
+
+# Opis zagadnienia:
+
+Celem niniejszej analizy jest zastosowanie metod eksploracyjnej analizy danych do zbioru informacji o klientach firmy telekomunikacyjnej, udostępnionego na platformie Kaggle. Zbiór zawiera dane dotyczące m.in. cech demograficznych klientów, rodzaju używanych usług oraz informacji o tym, czy klient zrezygnował z usług firmy (zmienna Churn). Analiza ma na celu:
+
+  - wstępne zapoznanie się z danymi,
+  
+  - przeprowadzenie opisu cech jakościowych i ilościowych,  
+  
+  - zbadanie zależności między zmiennymi,  
+
+  - porównanie grupy klientów, którzy zrezygnowali z usług, oraz tych, którzy pozostali,  
+  
+  - sformułowanie wniosków oraz próba identyfikacji czynników wpływających na decyzję klienta o odejściu.
+  
+  
+#Opis przeprowadzonych analiz:
+
+
+**Analiza obejmowała kilka etapów:**
+
+  - **Wstępne przygotowanie danych:**
+  
+  sprawdzenie rozmiaru zbioru, struktury danych, typów zmiennych oraz brakujących i nietypowych wartości. Usunięto zmienną identyfikacyjną customerID oraz wiersze z błędnie zakodowanymi wartościami (np. TotalCharges = "").
+  
+  - **Analiza opisowa cech:**
+  
+  dla zmiennych ilościowych (np. tenure, MonthlyCharges, TotalCharges) wyznaczono podstawowe miary położenia i rozproszenia (średnia, mediana, odchylenie standardowe, kwartyle). Dla zmiennych jakościowych (np. gender, Contract, InternetService) policzono liczebności kategorii i wykonano wizualizacje.
+  
+  - **Analiza graficzna:**
+  
+  wykorzystano szereg technik graficznych w języku R (głównie za pomocą ggplot2) — histogramy, wykresy pudełkowe (boxploty), wykresy słupkowe i rozrzutu — w celu zilustrowania rozkładów zmiennych oraz zależności między nimi. Część wykresów wykonano z podziałem na grupy Churn == "Yes" i Churn == "No".
+  
+  - **Porównania między grupami:**
+  
+  Dane zostały rozdzielone na dwie grupy — klientów, którzy odeszli oraz tych, którzy pozostali. Następnie porównano cechy w obu grupach, zarówno jakościowe, jak i ilościowe, aby zidentyfikować potencjalne różnice.
+
+W analizie zastosowano metody statystyki opisowej oraz eksploracji danych dla zbioru empirycznego (rzeczywistego). Wielkość próby po przetworzeniu danych wynosiła 7032 obserwacje (po usunięciu braków).
+
+Wykorzystano następujące narzędzia i metody analizy:
+
+  - metody graficzne: histogramy, wykresy pudełkowe, wykresy słupkowe, wykresy rozrzutu
+  - statystyki opisowe: średnia, mediana, minimum, maksimum, kwartyle, odchylenie standardowe
+  - filtrowanie i grupowanie danych (dplyr)
+  - funkcje eksploracyjne (skimr, summary()),
+  - konwersja i czyszczenie danych (tidyr, na.omit, as.numeric)
+
+```{r, echo=FALSE}
+#kod do wgrywania bibliotek 
+library(dplyr)
+library(DataExplorer)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(tibble)
+
+
+```
+
+# Kod przygotowujacy dane do analizy:
+
+```{r}
+#wczytywanie danych 
+dane <- read.csv(file="/Users/kowalski/Desktop/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+                 stringsAsFactors = FALSE) 
+
+#zmiana typow danych 
+dane <- dane %>%
+  mutate_if(is.character, as.factor)
+
+dane <- dane %>%
+  mutate_if(~ is.character(.) & !is.factor(.), ~ as.numeric(as.character(.)))
+
+dane$SeniorCitizen <- ifelse(dane$SeniorCitizen == 1, "Yes", "No")
+
+# nowa zmienna dla danych bez ID klienta poniewaz 
+# jest to nie potrzeba kolumna w analizie 
+dane_bez_id <- dane[, !(names(dane) %in% c("customerID"))]
+
+
+# Usuwamy osoby z bazy ktore maja tenur = 0 poniewaz 
+# jest ich 11(maly procent z bazy wszyskich osob z bazy)
+dane_bez_id <- dane_bez_id %>%
+  filter(tenure != 0)
+
+```
+
+
+# Wyniki dla jedej zmiennej :
+
+.
+
+.
+
+## Podstawowe wskaźniki sumaryczne:
+
+.
+
+.
+
+
+```{r, echo=FALSE}
+
+statystyki_oglnie <- dane_bez_id %>%
+  select(where(is.numeric)) %>%
+  summarise(across(everything(), list(
+    Min     = ~min(.x, na.rm = TRUE),
+    Max     = ~max(.x, na.rm = TRUE),
+    Średnia = ~mean(.x, na.rm = TRUE),
+    Mediana = ~median(.x, na.rm = TRUE),
+    SD      = ~sd(.x, na.rm = TRUE),
+    IQR     = ~IQR(.x, na.rm = TRUE)
+  )))
+
+# Obróbka
+statystyki_oglnie_df <- t(statystyki_oglnie) %>%
+  as.data.frame()
+colnames(statystyki_oglnie_df) <- c("Wartość")
+statystyki_oglnie_df <- tibble::rownames_to_column(statystyki_oglnie_df, "Zmienna_statystyka")
+
+# Wyświetlenie tabeli w markdown
+kbl(statystyki_oglnie_df,
+    caption = "Podstawowe wskaźniki sumaryczne",
+    digits = 2) %>%
+  kable_styling(full_width = FALSE, position = "center")
+```
+
+
+## Podstawowe wykresy dla jednej zmiennej :
+
+
+  **Zmienne jakościowe:**
+
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+plot_bar(dane_bez_id) 
+```
+
+  **Zmienne liczbowe:**
+
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+plot_histogram(dane_bez_id) 
+```
+
+
+## Wykresy dla par zmiennych:
+
+```{r}
+zmienne_ilosciowe <- names(dane)[sapply(dane, is.numeric)]
+
+for (i in 1:(length(zmienne_ilosciowe)-1)) {
+  for (j in (i+1):length(zmienne_ilosciowe)) {
+    zm1 <- zmienne_ilosciowe[i]
+    zm2 <- zmienne_ilosciowe[j]
+    
+    print(
+      ggplot(dane, aes_string(x = zm1, y = zm2)) +
+        geom_point(alpha = 0.5, color = "steelblue") +
+        geom_smooth(method = "lm", se = FALSE, color = "red") +
+        labs(title = paste("Zaleznosc:", zm1, "vs", zm2),
+             x = zm1, y = zm2)
+    )
+  }
+}
+
+```
+
+### Analiza zależności między zmiennymi ciągłymi
+
+Na podstawie wykresów rozrzutu dla par zmiennych ilościowych można zauważyć, że:
+
+  - **TotalCharges** i **tenure** są ze sobą silnie skorelowane liniowo – im dłużej klient korzysta z usług, tym wyższe łączne opłaty. Zależność ta ma charakter niemal liniowy, co potwierdza dobrze dopasowana czerwona linia regresji.
+  
+  - Zmienna **MonthlyCharges** ma słabszy związek zarówno z **tenure**, jak i **TotalCharges**. W przypadku MonthlyCharges i tenure nie obserwuje się wyraźnej zależności liniowej – dane są rozproszone, a linia trendu przebiega niemal poziomo.
+  
+  - Z kolei dla **MonthlyCharges** i **TotalCharges** widać umiarkowaną zależność, ale z dużym rozrzutem – co oznacza, że klienci o podobnych miesięcznych opłatach mogą mieć bardzo różne sumy łącznych opłat w zależności od długości współpracy.
+
+Podsumowując, najbardziej istotna i liniowa zależność występuje pomiędzy TotalCharges a tenure, co jest logiczne, ponieważ im dłużej klient korzysta z usług, tym więcej zapłacił łącznie. Pozostałe pary zmiennych wykazują co najwyżej słabe lub nieliniowe zależności.
+
+## Zakres możliwych wartości dla zmiennych ilościowych:
+
+```{r,echo=FALSE}
+zakres_tenure <- range(dane_bez_id$tenure)
+zakres_mon_charges <- range(dane_bez_id$MonthlyCharges)
+zakres_total_charges <- range(dane_bez_id$TotalCharges)
+```
+
+Na podstawie funkcji range() ustalono zakresy zmiennych ilościowych:
+
+  - Zakres zmiennej **Tenure** to: `r zakres_tenure`
+  
+  - Zakres zmiennej **MonthlyCharges** to : `r zakres_mon_charges`
+  
+  - Zakres zmiennej **TotalCharges** to : `r zakres_total_charges`
+
+Oznacza to, że klienci mogli korzystać z usług firmy od jednego miesiąca do sześciu lat, a miesięczne opłaty oraz łączne koszty wykazują dużą rozpiętość.
+
+
+
+## Zmienne jakościowe:
+
+```{r, echo=FALSE}
+#liczymy odchylenie stardarodwe dla tenure, monthlyCha.., totalCha..
+odchylenie_tenure <- sd(dane_bez_id$tenure, na.rm = TRUE)
+odchylenie_mch <- sd(dane_bez_id$MonthlyCharges, na.rm = TRUE)
+odchylenie_tch <- sd(dane_bez_id$TotalCharges, na.rm = TRUE)
+
+round(c(odchylenie_tch, odchylenie_mch, odchylenie_tenure), 2)
+```
+
+Odchyelnie standardowe dla poszczegolnych zmiennych:
+
+  - **Tenure** to `r odchylenie_tenure`
+  
+  - **MonthlyChargers** to `r odchylenie_mch`
+  
+  - **TotalChargers** to `r odchylenie_tch`
+  
+Największą zmienność wykazuje **TotalCharges** — co jest zgodne z intuicją, ponieważ to wartość skumulowana w czasie i zależna zarówno od stażu, jak i wysokości miesięcznej opłaty.
+
+## Czy zmienne mają rozkład symetryczny?
+
+Na podstawie wcześniejszych wykresów (histogramów, boxplotów) można zauważyć:
+
+  - **tenure** – rozkład asymetryczny prawostronny (więcej klientów z krótkim stażem),
+  
+  - **MonthlyCharges** – rozkład raczej zbliżony do symetrycznego, ale z lekką tendencją do prawej strony,
+  
+  - **TotalCharges** – rozkład wyraźnie prawoskośny (większość klientów nie zapłaciła dużej sumy).
+
+Zatem nie wszystkie zmienne ilościowe mają rozkład symetryczny.
+
+## Zmienne jakościowe — częstość występowania
+
+```{r, echo=FALSE}
+table(dane_bez_id$Churn)
+prop.table(table(dane_bez_id$Churn))
+liczby <- table(dane_bez_id$Churn)
+procenty <- prop.table(liczby) * 100
+```
+
+Wyniki:
+
+  - **No** (klienci, którzy pozostali): około `r round(procenty["No"], 1)`%
+  
+  - **Yes** (klienci, którzy odeszli): około `r round(procenty["Yes"], 1)`%
+
+Oznacza to, że zdecydowana większość klientów pozostaje przy usługach firmy, a tylko około 1 na 4 klientów rezygnuje.
+
+# Wyniki z podziałem na grupy:
+
+Kod kotry dzieli na grupy:
+
+```{r,echo=FALSE}
+
+#podzielenie na grupy osob ktore odeszly i zostaly
+dane_churn_yes_zrezygnowali <- dane_bez_id[dane_bez_id$Churn == "Yes", ]
+ilosc_odeszli <- nrow(dane_churn_yes_zrezygnowali)
+dane_churn_no_zostali <- dane_bez_id[dane_bez_id$Churn == "No", ]
+ilosc_zostali <- nrow(dane_churn_no_zostali)
+```
+  
+  - **Grupa 1** – klienci, którzy zrezygnowali z usług (Churn == "Yes"). Jest ich `r ilosc_odeszli`.
+          
+  - **Grupa 2** – klienci, którzy pozostali lojalni (Churn == "No"). Jest ich `r ilosc_zostali`
+
+
+Dla każdej z grup wyznaczono statystyki opisowe oraz rozkłady zmiennych jakościowych i ilościowych. Wykorzystano funkcje summary(), plot_bar() i plot_histogram() z pakietu DataExplorer.
+
+## Analiza **Grupy 1**:
+
+### Wskazniki sumaryczne:
+
+```{r, echo=FALSE, results='asis'}
+statystyki_gr1 <- dane_churn_yes_zrezygnowali %>%
+  select(where(is.numeric)) %>%
+  summarise(across(everything(), list(
+    Min     = ~min(.x, na.rm = TRUE),
+    Max     = ~max(.x, na.rm = TRUE),
+    Średnia = ~mean(.x, na.rm = TRUE),
+    Mediana = ~median(.x, na.rm = TRUE),
+    SD      = ~sd(.x, na.rm = TRUE),
+    IQR     = ~IQR(.x, na.rm = TRUE)
+  )))
+
+# Obróbka
+statystyki_gr1_df <- t(statystyki_gr1) %>%
+  as.data.frame()
+colnames(statystyki_gr1_df) <- c("Wartość")
+statystyki_gr1_df <- tibble::rownames_to_column(statystyki_gr1_df, "Zmienna_statystyka")
+
+# Wyświetlenie tabeli w markdown
+kbl(statystyki_gr1_df,
+    caption = "Podstawowe wskaźniki sumaryczne dla Grupy 1",
+    digits = 2) %>%
+  kable_styling(full_width = FALSE, position = "center")
+```
+ 
+
+### Podstawowe wykresy:
+
+  Dla zmiennych jakościowych:
+  
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+plot_bar(dane_churn_yes_zrezygnowali)
+```
+
+  Dla zmiennych liczbowych:
+  
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+plot_histogram(dane_churn_yes_zrezygnowali)
+```
+
+
+
+## Analiza **Grupy 2**:
+
+### Wskazniki sumaryczne:
+
+```{r, echo=FALSE, results='asis'}
+
+
+statystyki_gr2 <- dane_churn_no_zostali %>%
+  select(where(is.numeric)) %>%
+  summarise(across(everything(), list(
+    Min     = ~min(.x, na.rm = TRUE),
+    Max     = ~max(.x, na.rm = TRUE),
+    Średnia = ~mean(.x, na.rm = TRUE),
+    Mediana = ~median(.x, na.rm = TRUE),
+    SD      = ~sd(.x, na.rm = TRUE),
+    IQR     = ~IQR(.x, na.rm = TRUE)
+  )))
+
+# Obróbka
+statystyki_gr2_df <- t(statystyki_gr2) %>%
+  as.data.frame()
+colnames(statystyki_gr2_df) <- c("Wartość")
+statystyki_gr2_df <- tibble::rownames_to_column(statystyki_gr2_df, "Zmienna_statystyka")
+
+# Wyświetlenie tabeli w markdown
+kbl(statystyki_gr2_df,
+    caption = "Podstawowe wskaźniki sumaryczne dla Grupy 2",
+    digits = 2) %>%
+  kable_styling(full_width = FALSE, position = "center")
+```
+
+
+### Podstawowe wykresy:
+
+  Dla zmiennych jakościowych:
+  
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+plot_bar(dane_churn_no_zostali) 
+```
+
+  Dla zmiennych liczbowych:
+  
+```{r, echo=FALSE, fig.width=10, fig.height=6}
+plot_histogram(dane_churn_no_zostali) 
+```
+
+
+## Analiza obu grup:
+
+
+Analizując wizualizacje i średnie wartości zmiennych, można zauważyć, że niektóre cechy różnicują grupy wyraźniej niż inne:
+  
+  - **Typ umowy** (Contract): klienci z umowami miesięcznymi znacznie częściej rezygnują niż ci, którzy mają umowę na 1 lub 2 lata.
+  
+  - **Usługi dodatkowe** (OnlineSecurity, OnlineBackup, StreamingTV, StreamingMovies): osoby korzystające z tych usług rzadziej rezygnują. Widoczna różnica w częstościach między grupami.
+  
+  - **Długość korzystania** (tenure): krótszy staż mocno koreluje z większym prawdopodobieństwem odejścia.
+  
+  - **Opłaty miesięczne** (MonthlyCharges): klienci płacący więcej miesięcznie częściej odchodzą.
+
+Zmienna InternetService również wykazuje zróżnicowanie – osoby korzystające z usług „Fiber optic” częściej rezygnują niż ci z „DSL” lub „No internet service”.
+
+# Podsuowanie:
+
+## Wnioski z przeprowadzonych analiz:
+
+Analiza danych pozwoliła na dokładne poznanie struktury zbioru oraz zróżnicowania klientów firmy telekomunikacyjnej. Dane zostały poprawnie przygotowane i oczyszczone z błędnych wartości oraz identyfikatorów. Następnie wykonano eksplorację zmiennych jakościowych i ilościowych, zarówno dla całej populacji, jak i w podziale na grupy Churn.
+
+Zmienna Churn okazała się silnie powiązana z takimi cechami jak: 
+
+  - **typ umowy** (Contract), 
+  - **długość współpracy** (tenure), 
+  - **miesięczne opłaty** (MonthlyCharges) 
+  - **wykorzystywane usługi dodatkowe** (np. OnlineSecurity, StreamingTV).
+
+## Co mówią dane o klientach firmy?
+
+Zdecydowana większość klientów (ok. `r round(procenty["No"], 1)`%) pozostaje przy usługach firmy, co wskazuje na ogólnie dobrą retencję. Klienci firmy najczęściej korzystają z internetu światłowodowego (Fiber optic), a także usług takich jak telewizja (StreamingTV) i płatności elektroniczne (Electronic check).
+
+Klienci lojalni zazwyczaj mają **dłuższy staż**, **niższe opłaty miesięczne** i częściej wybierają **umowy długoterminowe**.
+
+## Co charakteryzuje klientów, którzy odchodzą? 
+
+Klienci, którzy rezygnują z usług:
+
+  - posiadają umowy na czas nieokreślony (miesięczne),
+  
+  - mają niski staż (niski tenure),
+  
+  - ponoszą wyższe opłaty miesięczne,
+  
+  - rzadziej korzystają z usług zabezpieczających (OnlineSecurity, TechSupport).
+
+
+## Co firma może z tym zrobić?
+
+Aby przeciwdziałać odchodzeniu klientów, firma powinna:
+
+  - zachęcać do podpisywania umów długoterminowych (np. zniżkami),
+  
+  - monitorować klientów w pierwszych miesiącach korzystania i aktywnie wspierać ich onboarding,
+  
+  - oferować pakiety lojalnościowe z usługami dodatkowymi (np. bezpieczeństwo online, wsparcie techniczne),
+  
+  - segmentować klientów według ryzyka rezygnacji i kierować działania retencyjne do odpowiednich grup.
+
+
+
+
+
