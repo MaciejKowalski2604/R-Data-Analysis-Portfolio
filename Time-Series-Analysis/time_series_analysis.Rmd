@@ -1,0 +1,454 @@
+---
+title: "Sprawozdanie"
+subtitle: "Analiza szeregów czasowych"
+author: "Maciej Kowalski"
+date: "`r Sys.Date()`"
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+output: 
+  pdf_document:
+    toc: true
+    fig_caption: yes
+    fig_width: 5 
+    fig_height: 4 
+    number_sections: true
+fontsize: 12pt 
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+
+
+#paczki 
+library(stats)
+library(knitr)
+```
+
+
+# Zadanie 3
+
+## Opis zagadnienia 
+
+Celem niniejszego opracowania jest zaimplementowanie i porównanie metod służących do weryfikacji hipotezy o białoszumowości szeregu czasowego.
+
+Białym szumem nazywamy ciąg nieskorelowanych zmiennych losowych o stałej średniej (zwykle 0) i stałej wariancji $\sigma^2$. Jest to najbardziej podstawowy model stacjonarny. W praktyce weryfikacja, czy dany szereg (np. reszty modelu) jest białym szumem, jest kluczowym etapem diagnostyki modelu. 
+
+W zadaniu 3a zilustrujemy działanie dwóch podejść:
+
+  - **Testu graficznego**, opartego na analizie korelogramu (funkcji ACF) i jej asymptotycznych przedziałów ufności.
+  
+  - **Testów formalnych** : Boxa-Pierce'a oraz Ljungi-Boxa.
+
+W zadaniu 3b przeprowadzimy analizę symulacyjną, aby porównać skuteczność (poziom istotności i moc) tych testów w różnych scenariuszach.
+
+## Opis eksperymentów:
+
+**Zadanie 3A: ilustracja metod**
+
+W pierwszej kolejności zilustrujemy działanie testów na dwóch skrajnych przykładach:
+
+  - **Szeregu będącego białym szumem** - wygenerowanego z rozkładu normalnego $N(0,1)$. W tym przypadku oczekujemy, że testy **nie odrzucą** hipotezy zerowej $H_0$.
+  
+  - **Szeregu niestacjonarnego** - wygenerowanego jako proces błądzenia losowego. W tym przypadku oczekujemy, że testy **odrzucą** hipotezę zerową $H_0$.
+
+Dla obu szeregów przedstawimy wyniki testu graficznego (acf()) oraz obu testów formalnych (Box.test()), a następnie zinterpretujemy wyniki w kontekście teorii z wykładów.
+
+**Zadanie 3b: Badanie symulacyjne**
+
+W drugiej części przeprowadzimy badanie symulacyjne w celu porównania właściwości testów. Podstawowe parametry symulacji to:
+
+  - Liczba powtórzeń (realizacji szeregu) $R = 1000$.
+  
+  - Domyślny asymptotyczny poziom istotności $\alpha = 0.05$.
+  
+Test graficzny zostanie zaimplementowany poprzez sprawdzenie, czy *jakakolwiek* wartość próbkowej funkcji ACF dla opóźnień $h \in [1, h_{max}]$ przekracza asymptotyczną granicę istotności $\pm 1.96/\sqrt{n}$.
+
+
+Zbadane zostaną następujące scenariusze:
+
+- **Badanie rozmiaru testu (wpływ rozkładu):** Sprawdzimy, czy dla $H_0$ (dane są białym szumem) testy utrzymują założony poziom istotności 5%. Użyjemy $n=100$ i $h_{max}=20$.
+    - Rozkład normalny: $Z_t \sim N(0,1)$.
+    - Rozkład t-Studenta (grube ogony): $Z_t \sim t(3)$.
+    - Rozkład jednostajny: $Z_t \sim U(-1, 1)$.
+
+  - **Badanie wpływu długości szeregu ($n$):** Sprawdzimy rozmiar testu dla $H_0 \sim N(0,1)$ przy $h_{max}=10$, porównując $n=25$ (krótki szereg) i $n=100$.
+  
+  - **Badanie wpływu maksymalnego opóźnienia ($h_{max}$):** Sprawdzimy rozmiar testu dla $H_0 \sim N(0,1)$ przy $n=100$, porównując $h_{max}=10$ i $h_{max}=30$.
+
+  - **Badanie mocy testu (szeregi inne niż WN):** Sprawdzimy, jak często (w \%) testy poprawnie odrzucają fałszywą hipotezę $H_0$. Użyjemy $n=100$ i $h_{max}=20$.
+    - Model $MA(1)$ ze słabą korelacją ($\theta=0.3$).
+    - Model $MA(1)$ z silną korelacją ($\theta=0.8$).
+    - Błądzenie losowe (RW).
+    - Szum IID z trendem deterministycznym ($X_t = 0.1t + Z_t$).
+  
+## Wyniki 
+
+### Ilustracja metody zadania 3A 
+
+```{r}
+set.seed(123)
+n_3a <- 300
+h_3a <- 20
+
+# biały szum
+szereg_wn <- rnorm(n_3a)
+
+#błądzenie losowe
+
+szereg_nie_wn <- cumsum(rnorm(n_3a))
+```
+
+#### Test graficzny 
+
+```{r}
+# wykres ACF dla białego szumu
+acf(szereg_wn, main = "ACF dla białego szumu (WN)")
+```
+
+```{r}
+# wykres ACF dla błądzenia losowego
+acf(szereg_nie_wn, main = "ACF dla błądzenia losowego (RW)")
+```
+
+**Interpretacja acf_wn:**
+
+Na wykresie ACF dla szeregu szereg_wn widzimy, że poza opóźnieniem $h=0$ (które z definicji wynosi 1), praktycznie wszystkie prążki autokorelacji mieszczą się wewnątrz niebieskich linii (granic istotności). Test graficzny nie daje podstaw do odrzucenia hipotezy, że szereg jest białym szumem, co jest zgodne z założeniami jego generowania.
+
+**Interpretacja acf_rw:**
+
+Na wykresie ACF dla szeregu szereg_nie_wn sytuacja jest drastycznie inna. Wartości autokorelacji są bardzo wysokie, dodatnie i bardzo powoli zanikają. Jest to typowa cecha szeregów niestacjonarnych (np. z trendem stochastycznym, jakim jest błądzenie losowe). Wszystkie prążki ewidentnie wykraczają poza granice istotności. Test graficzny pozwala jednoznacznie odrzucić hipotezę o białoszumowości.
+
+### Testy formalne: 
+
+Testy formalne (Boxa-Pierce'a i Ljungi-Boxa) agregują informację z wielu autokorelacji w jedną statystykę testową. Hipotezą zerową ($H_0$) obu testów jest to, że szereg jest białym szumem. Na podstawie wartości p-value (dla $\alpha = 0.05$) decydujemy o odrzuceniu ($p < 0.05$) lub braku podstaw do odrzucenia ($p > 0.05$) tej hipotezy. Zgodnie z Wykładem 2, test Ljungi-Boxa jest preferowany, gdyż ma lepsze właściwości dla małych próbek.
+
+
+```{r, echo=FALSE}
+#szereg WN
+test_wn_lb <- Box.test(szereg_wn, lag = h_3a, type = "Ljung-Box")
+test_wn_bp <- Box.test(szereg_wn, lag = h_3a, type = "Box-Pierce")
+
+#szereg RW
+test_rw_lb <- Box.test(szereg_nie_wn, lag = h_3a, type = "Ljung-Box")
+test_rw_bp <- Box.test(szereg_nie_wn, lag = h_3a, type = "Box-Pierce")
+
+#tabela wyników
+dane <- c("szereg_wn", "szereg_wn", "szereg_nie_wn", "szereg_nie_wn")
+metoda <- c(test_wn_lb$method, test_wn_bp$method, test_rw_lb$method, test_rw_bp$method)
+statystyka <- c(test_wn_lb$statistic, test_wn_bp$statistic, test_rw_lb$statistic, test_rw_bp$statistic)
+df <- c(test_wn_lb$parameter, test_wn_bp$parameter, test_rw_lb$parameter, test_rw_bp$parameter)
+p_value <- c(test_wn_lb$p.value, test_wn_bp$p.value, test_rw_lb$p.value, test_rw_bp$p.value)
+
+p_value_formatted <- ifelse(p_value < 0.001, "< 0.001", round(p_value, 3))
+
+tabela_testow <- data.frame(
+  Szereg = dane,
+  Test = metoda,
+  Statystyka_X2 = statystyka,
+  df = df,
+  `p-value` = p_value_formatted
+)
+
+kable(tabela_testow, 
+      digits = 3, 
+      caption = "\\label{tab:testy_formalne} Wyniki testów formalnych dla szeregu WN i RW.",
+      col.names = c("Szereg", "Nazwa testu", "Statystyka $X^2$", "df", "p-value"),
+      row.names = FALSE,
+      booktabs = TRUE)
+```
+
+**Interpretacja wyników:**
+
+  - Dla szereg_wn:
+  
+      - Test Ljungi-Boxa: $p-value \approx 0.70$.
+      
+      - Test Boxa-Pierce'a: $p-value \approx 0.68$.Obie wartości $p-value$ są znacznie większe od $\alpha = 0.05$. Zatem nie mamy podstaw do odrzucenia $H_0$. Oba testy formalne poprawnie wskazują, że szereg może być białym szumem.
+      
+  - Dla szereg_nie_wn:
+  
+      - Test Ljungi-Boxa: $p-value < 2.2e-16$.
+      
+      - Test Boxa-Pierce'a: $p-value < 2.2e-16$.Obie wartości $p-value$ są ekstremalnie małe (znacznie mniejsze od $\alpha = 0.05$). Zatem odrzucamy $H_0$. Oba testy formalne poprawnie wykryły, że szereg nie jest białym szumem.
+
+## Badanie symulacyjne- podpunkt B 
+
+```{r, , echo=FALSE}
+# funkcja do przeprowadzenia symulacji
+run_simulation <- function(R, n, h_lag, generator_func, alpha = 0.05) {
+  wyniki <- matrix(0, nrow = R, ncol = 3)
+  colnames(wyniki) <- c("Ljung-Box", "Box-Pierce", "Graficzny")
+  granica_ufnosci <- qnorm(1 - alpha / 2) / sqrt(n)
+  
+  # Pętla symulacyjna
+  for (i in 1:R) {
+    dane <- generator_func(n)
+    test_lb <- suppressWarnings(Box.test(dane, lag = h_lag, type = "Ljung-Box"))
+    test_bp <- suppressWarnings(Box.test(dane, lag = h_lag, type = "Box-Pierce"))
+    if (test_lb$p.value < alpha) { wyniki[i, "Ljung-Box"] <- 1 }
+    if (test_bp$p.value < alpha) { wyniki[i, "Box-Pierce"] <- 1 }
+    
+    # 3. Test graficzny
+    acf_wyniki <- acf(dane, lag.max = h_lag, plot = FALSE)
+    wartosci_acf <- acf_wyniki$acf[-1] # Usuwamy h=0
+    
+        if ( any(abs(wartosci_acf) > granica_ufnosci) ) {
+      wyniki[i, "Graficzny"] <- 1
+    }
+  }
+  
+  return(colMeans(wyniki))
+}
+```
+
+
+```{r, echo=FALSE}
+
+#H0 prawdziwa
+gen_wn_norm <- function(n) { rnorm(n) } # Rozkład normalny
+gen_wn_t    <- function(n) { rt(n, df = 3) } # Rozkład t-Studenta
+gen_wn_unif <- function(n) { runif(n, min = -1, max = 1) } # Rozkład jednostajny
+
+#H0 fałszywa
+gen_ma_weak   <- function(n) { arima.sim(model = list(ma = 0.3), n = n) } # MA(1) słaba korelacja
+gen_ma_strong <- function(n) { arima.sim(model = list(ma = 0.8), n = n) } # MA(1) silna korelacja
+gen_rw        <- function(n) { cumsum(rnorm(n)) } # Błądzenie losowe
+gen_trend     <- function(n) { (1:n) * 0.1 + rnorm(n) } # Trend deterministyczny + szum
+```
+
+
+```{r, echo=FALSE}
+set.seed(456)
+R <- 1000
+
+wyniki_all <- list()
+
+# n=100, h_max=20
+wyniki_all[["1. Rozmiar (N(0,1), n=100, h=20)"]]    <- run_simulation(R, n=100, h_lag=20, gen_wn_norm)
+wyniki_all[["2. Rozmiar (t(3), n=100, h=20)"]]      <- run_simulation(R, n=100, h_lag=20, gen_wn_t)
+wyniki_all[["3. Rozmiar (U(-1,1), n=100, h=20)"]]  <- run_simulation(R, n=100, h_lag=20, gen_wn_unif)
+
+# h_max=10
+wyniki_all[["4. Wpływ n (N(0,1), n=25, h=10)"]]   <- run_simulation(R, n=25, h_lag=10, gen_wn_norm)
+wyniki_all[["5. Wpływ n (N(0,1), n=100, h=10)"]]  <- run_simulation(R, n=100, h_lag=10, gen_wn_norm)
+
+# n=100
+wyniki_all[["6. Wpływ h (N(0,1), n=100, h=10)"]]  <- run_simulation(R, n=100, h_lag=10, gen_wn_norm)
+wyniki_all[["7. Wpływ h (N(0,1), n=100, h=30)"]]  <- run_simulation(R, n=100, h_lag=30, gen_wn_norm)
+
+# n=100, h_max=20
+wyniki_all[["8. Moc (MA(1), th=0.3)"]]  <- run_simulation(R, n=100, h_lag=20, gen_ma_weak)
+wyniki_all[["9. Moc (MA(1), th=0.8)"]]  <- run_simulation(R, n=100, h_lag=20, gen_ma_strong)
+wyniki_all[["10. Moc (RW)"]]            <- run_simulation(R, n=100, h_lag=20, gen_rw)
+wyniki_all[["11. Moc (Trend)"]]         <- run_simulation(R, n=100, h_lag=20, gen_trend)
+
+tabela_wynikow <- do.call(rbind, wyniki_all)
+```
+
+### Wyniki symulacji 
+
+Poniższa tabela przedstawia odsetek odrzuceń hipotezy $H_0$ (o białoszumowości) w $R=1000$ powtórzeń dla każdego scenariusza (przy $\alpha=0.05$).
+
+```{r, echo=FALSE}
+kable(tabela_wynikow, 
+      digits = 3, 
+      caption = "\\label{tab:symulacje} Odsetek odrzuceń H0 (biały szum) w symulacjach.",
+      col.names = c("Ljung-Box (%)", "Box-Pierce (%)", "Graficzny (%)"))
+```
+
+
+
+## Podsumowanie:
+
+Na podstawie przeprowadzonych analiz i symulacji można sformułować następujące wnioski:
+
+  - **Testy formalne (Ljung-Box i Box-Pierce) są narzędziami obiektywnymi i wiarygodnym.** Poprawnie utrzymują nominalny poziom istotności (nie dają fałszywych alarmów) i mają dobrą moc (skutecznie wykrywają zależności), o ile zależności te nie są bardzo słabe.
+  
+  - Test **Ljungi-Boxa** potwierdził swoją wyższość nad testem Boxa-Pierce'a, lepiej trzymając rozmiar dla krótkich szeregów ($n=25$).
+  
+  - **Test graficzny ** jest doskonałym narzędziem wizualnym (co pokazało zadanie 3a), ale jego "automatyczna" implementacja (odrzucenie, gdy choć jeden prążek wykracza) jest wadliwa i prowadzi do zbyt częstego odrzucania prawdziwej hipotezy $H_0$. W praktyce służy on raczej do identyfikacji wzorca zależności (np. powolnego zanikania), a nie do formalnego testowania.
+  
+  - Wszystkie testy bez problemu wykrywają silne niestacjonarności, takie jak trend czy błądzenie losowe.
+  
+
+# Zadanie 4: Dekompozycja szeregów czasowych
+
+W tym zadaniu przeprowadzimy analizę dekompozycji dla szeregu czasowego `a10` (miesięczna sprzedaż leków przeciwcukrzycowych w Australii), pochodzącego z pakietu `fpp2`. Celem jest eliminacja trendu i sezonowości oraz wybór najlepszej metody.
+
+```{r, echo=FALSE}
+library(fpp2)
+library(forecast)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+
+data(a10)
+szereg_analizowany <- a10
+```
+
+
+## Analiza wstępna
+
+```{r}
+autoplot(szereg_analizowany) +
+  ggtitle("Miesięczna sprzedaż leków (a10)") +
+  ylab("Miliony $") +
+  xlab("Rok") +
+  theme_minimal()
+```
+
+### Wnioski:
+
+  - Obserwujemy wyraźny trend wzrostowy (wygląda na wykładniczy).
+  
+  - Występuje silna sezonowość roczna.
+  
+  - Amplituda wahań rośnie wraz z poziomem szeregu (efekt multiplikatywny).
+  
+## Metoda średniej ruchomej
+
+Zgodnie z poleceniem porównamy model addytywny i multiplikatywny.
+
+### Model addytywny vs Multiplikatywny
+
+```{r}
+decomp_add <- decompose(szereg_analizowany, type = "additive")
+
+
+decomp_mult <- decompose(szereg_analizowany, type = "multiplicative")
+
+p1 <- autoplot(decomp_add$random) + ggtitle("Reszty: Model Addytywny") + ylab("")
+p2 <- autoplot(decomp_mult$random) + ggtitle("Reszty: Model Multiplikatywny") + ylab("")
+
+grid.arrange(p1, p2, ncol=1)
+```
+
+**Wniosek: **
+
+Model addytywny dla surowych danych daje reszty o rosnącej wariancji ("lejek"), co łamie założenie o stacjonarności. Model multiplikatywny (lub addytywny na logarytmach) jest zdecydowanie bardziej odpowiedni. Dalej będziemy używać transformacji Boxa-Coxa, aby ustabilizować wariancję i pracować na modelach addytywnych.
+
+```{r, echo=FALSE}
+
+lambda_opt <- BoxCox.lambda(szereg_analizowany)
+szereg_bc <- BoxCox(szereg_analizowany, lambda_opt)
+
+decomp_final <- decompose(szereg_bc, type = "additive")
+reszty_decompose <- na.omit(decomp_final$random)
+```
+
+## Model regresji
+
+Porównamy dopasowanie modelu z trendem liniowym oraz kwadratowym.
+
+```{r}
+
+fit_lin <- tslm(szereg_bc ~ trend + season)
+
+fit_poly <- tslm(szereg_bc ~ trend + I(trend^2) + season)
+
+autoplot(szereg_bc, series="Dane") +
+  autolayer(fitted(fit_lin), series="Liniowy") +
+  autolayer(fitted(fit_poly), series="Kwadratowy") +
+  ggtitle("Porównanie dopasowania modeli TSLM") +
+  theme_minimal()
+```
+
+Porównanie modeli (ANOVA):
+
+```{r}
+anova_res <- anova(fit_lin, fit_poly)
+kable(anova_res, caption = "Tabela ANOVA: Liniowy vs Kwadratowy")
+```
+
+**Wniosek:**
+
+Bardzo niska wartość p-value w tabeli ANOVA wskazuje, że dodanie składnika kwadratowego istotnie poprawia jakość modelu. Trend liniowy jest niewystarczający do opisania dynamiki sprzedaży leków.
+
+```{r}
+reszty_tslm <- residuals(fit_poly)
+```
+
+## Metoda STL
+
+Metoda STL pozwala na kontrolę zmienności sezonowości w czasie. Sprawdzimy wpływ parametru *s.window.*
+
+```{r}
+# sezonowość stała
+stl_periodic <- stl(szereg_bc, s.window = "periodic", robust = TRUE)
+# sezonowość szybko zmienna
+stl_variable <- stl(szereg_bc, s.window = 7, robust = TRUE)
+
+p3 <- autoplot(stl_periodic) + ggtitle("STL: s.window='periodic'")
+p4 <- autoplot(stl_variable) + ggtitle("STL: s.window=7")
+
+grid.arrange(p3, p4, ncol=2)
+```
+
+**Wniosek:**
+
+Wersja *periodic* wymusza identyczny wzorzec sezonowy przez cały okres. Wersja z *s.window=7* pozwala na lekką ewolucję sezonowości. Ponieważ dla tych danych sezonowość wydaje się stabilna po transformacji Boxa-Coxa, wybieramy model *periodic* jako bardziej parsimoniczny (prostszy), ale korzystający z odporności na obserwacje odstające.
+
+
+```{r}
+reszty_stl <- stl_periodic$time.series[, "remainder"]
+```
+
+## Podsumowanie i ocena reszt
+
+Zestawienie wariancji reszt oraz testy stacjonarności dla wybranych najlepszych wariantów każdej metody.
+
+```{r}
+# Funkcja pomocnicza do statystyk
+calc_stats <- function(res, name) {
+  var_res <- var(res)
+  # Test Ljunga-Boxa
+  lb_test <- Box.test(res, lag = 24, type = "Ljung-Box")
+  return(data.frame(
+    Metoda = name,
+    Wariancja_Reszt = round(var_res, 4),
+    P_value_LjungBox = format.pval(lb_test$p.value, digits=3)
+  ))
+}
+
+stats_df <- rbind(
+  calc_stats(reszty_decompose, "Decompose (Add + BoxCox)"),
+  calc_stats(reszty_tslm, "TSLM (Kwadratowy + BoxCox)"),
+  calc_stats(reszty_stl, "STL (Periodic + BoxCox)")
+)
+
+kable(stats_df, caption = "Porównanie jakości dekompozycji")
+```
+
+```{r}
+ggtsdisplay(reszty_stl, main="Diagnostyka reszt dla metody STL")
+```
+
+## Wnioski końcowe:
+
+  **Najlepsza metoda:** Najmniejszą wariancję reszt uzyskała metoda STL. Pozwala ona na elastyczne dopasowanie trendu (lepiej niż sztywna parabola w TSLM) i jest odporna na obserwacje odstające.
+  
+  **Istotność transformacji:** Zastosowanie transformacji Boxa-Coxa było kluczowe dla wszystkich metod, aby ustabilizować wariancję.
+  
+  **Białoszumowość:** Żadna z metod nie dała idealnie białoszumowych reszt (p-value < 0.05 we wszystkich przypadkach, widoczne prążki na ACF). Sugeruje to, że w danych występują jeszcze krótkoterminowe zależności (autokorelacja), których sama dekompozycja deterministyczna nie usuwa. Do pełnego opisu szeregu należałoby zastosować model stochastyczny, np. ARIMA na resztach z dekompozycji.
+
+
+# Bibliografia
+
+1.  **Literatura podstawowa i skrypty:**
+    * Zagdański, A., Suchwałko, A. (2015). *Analiza i prognozowanie szeregów czasowych. Praktyczne wprowadzenie na podstawie środowiska R*. [cite_start]Wydawnictwo Naukowe PWN[cite: 145].
+    * [cite_start]Materiały wykładowe do kursu *Analiza Szeregów Czasowych*, Politechnika Wrocławska (2025)[cite: 1, 3].
+
+2.  **Literatura uzupełniająca (anglojęzyczna):**
+    * Hyndman, R.J., & Athanasopoulos, G. (2018). *Forecasting: principles and practice*, 2nd edition, OTexts: Melbourne, Australia. [cite_start]Dostępne online: [OTexts.com/fpp2](http://OTexts.com/fpp2)[cite: 143].
+    * Brockwell, P.J., & Davis, R.A. (2010). *Introduction to Time Series and Forecasting*. [cite_start]Springer, 2nd edition[cite: 142].
+
+3.  **Oprogramowanie:**
+    * R Core Team (2024). *R: A language and environment for statistical computing*. R Foundation for Statistical Computing, Vienna, Austria.
+    * Hyndman R., et al. (2023). *forecast: Forecasting functions for time series and linear models*. R package version 8.21.
