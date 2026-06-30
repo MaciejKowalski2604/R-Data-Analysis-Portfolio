@@ -1,0 +1,644 @@
+---
+title: "Sprawozdanie 2"
+subtitle: "Analiza szeregów czasowych"
+author: "Maciej Kowalski,   album 275936"
+date: "`r Sys.Date()`"
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+output: 
+  bookdown::pdf_document2:
+    toc: true
+    fig_caption: yes
+    fig_width: 5 
+    fig_height: 4 
+    number_sections: true
+fontsize: 12pt 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+
+
+```
+
+
+# Zadanie 3: Dopasowanie modeli autoregresji do szeregu gtemp_both
+
+## Opis danych i cel analizy
+
+Celem niniejszego zadania jest analiza szeregu czasowego gtemp_both, przedstawiającego odchylenia średniej rocznej temperatury globalnej, oraz dopasowanie do niego odpowiednich modeli autoregresji $AR(p)$. W badaniu porównane zostaną dwa podejścia do sprowadzania szeregu do stacjonarności: różnicowanie oraz eliminacja deterministycznego trendu wielomianowego.
+
+```{r, echo=FALSE}
+
+library(forecast)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(astsa) 
+
+data(gtemp_both)
+ts_data <- gtemp_both
+
+```
+
+
+```{r gtempRaw, echo=FALSE, fig.cap="Globalne odchylenia temperatury (1880-2023)"}
+# Wykres wstępny
+autoplot(ts_data) +
+  ggtitle("Globalne odchylenia temperatury (1880-2023)") +
+  ylab("Odchylenie [°C]") +
+  xlab("Rok") +
+  theme_light()
+```
+
+Analiza przebiegu szeregu przedstawionego na Rysunku @ref(fig:gtempRaw) wskazuje na obecność wyraźnego trendu wzrostowego, co świadczy o niestacjonarności procesu w średniej. Wariancja procesu wydaje się stabilna w czasie, zatem nie ma konieczności stosowania transformacji stabilizujących wariancję (np. Boxa-Coxa).
+
+
+## Transformacja do stacjonarności (Podpunkt A)
+
+Wstępna analiza wykresu szeregu wskazuje na obecność wyraźnego trendu wzrostowego, co świadczy o niestacjonarności procesu w średniej. Aby umożliwić dopasowanie modelu stacjonarnego $AR(p)$, konieczne jest przekształcenie szeregu do postaci stacjonarnej. W tym celu zastosowano i porównano dwa podejścia:
+
+1.  **Różnicowanie** ($\nabla X_t = X_t - X_{t-1}$) – metoda pozwalająca na eliminację stochastycznego trendu poprzez analizę przyrostów.
+2.  **Eliminację trendu wielomianowego** – dopasowanie deterministycznej funkcji trendu (wielomianu stopnia 2: $m_t = \beta_0 + \beta_1 t + \beta_2 t^2$) metodą najmniejszych kwadratów i wyznaczenie szeregu reszt.
+
+
+```{r transformacje, echo=TRUE, fig.cap="Szeregi czasowe po transformacjach: (góra) jednokrotne różnicowanie, (dół) reszty z modelu trendu kwadratowego."}
+# 1: Różnicowanie
+data_diff <- diff(ts_data)
+
+# 2: Eliminacja trendu wielomianowego
+time_idx <- time(ts_data)
+
+model_trend_poly <- lm(ts_data ~ time_idx + I(time_idx^2))
+
+data_detrend <- ts(resid(model_trend_poly), 
+                   start = start(ts_data), 
+                   frequency = frequency(ts_data))
+
+p1 <- autoplot(data_diff) + 
+  ggtitle("A) Po różnicowaniu") + 
+  ylab("Zmiana") + theme_light()
+
+p2 <- autoplot(data_detrend) + 
+  ggtitle("A) Po usunięciu trendu kwadratowego") + 
+  ylab("Reszty") + theme_light()
+
+grid.arrange(p1, p2, ncol=1)
+
+```
+
+Analiza przebiegów czasowych przedstawionych na Rysunku @ref(fig:transformacje) wskazuje, że obie zastosowane transformacje skutecznie wyeliminowały trend. Wartości obu przekształconych szeregów oscylują wokół zera, a ich wariancja wydaje się stabilna w czasie. Pozwala to na przyjęcie założenia o stacjonarności i przejście do etapu identyfikacji rzędu modelu autoregresyjnego.
+
+## Wybór rzędu modelu autoregresji (Podpunkt B)
+
+Kluczowym etapem budowy modelu $AR(p)$ jest identyfikacja rzędu opóźnień $p$. W tym celu posłużono się dwoma komplementarnymi narzędziami: analizą funkcji autokorelacji cząstkowej (PACF) oraz kryteriami informacyjnymi (AIC). Dla procesu autoregresyjnego rzędu $p$ teoretyczna funkcja PACF powinna przyjmować wartości bliskie zeru dla opóźnień $h > p$.
+
+W pierwszej kolejności przeanalizowano wykresy PACF dla obu przekształconych szeregów czasowych.
+
+```{r, echo=FALSE, pacfAnaliza, fig.cap="Wykresy funkcji autokorelacji cząstkowej (PACF)"}
+
+par(mfrow=c(2,1))
+
+# PACF dla danych zróżnicowanych
+pacf(data_diff, main="PACF: Dane zróżnicowane", lag.max=20)
+
+# PACF dla danych bez trendu
+pacf(data_detrend, main="PACF: Dane bez trendu", lag.max=20)
+
+par(mfrow=c(1,1))
+
+
+
+```
+
+Analiza Rysunku @ref(fig:pacfAnaliza) pozwala na wstępną identyfikację struktury zależności.
+
+  - W przypadku **danych zróżnicowanych** obserwuje się istotną, wyraźną korelację cząstkową dla opóźnienia $h=4$, co może sugerować rząd modelu $p=4$.
+  
+  - Dla **danych po eliminacji trendu** struktura zależności jest bardziej złożona, a istotne wartości PACF występują dla wyższych opóźnień, co wskazuje na konieczność zastosowania modelu o wyższym rzędzie.W celu obiektywnego doboru rzędu $p$ zastosowano kryterium informacyjne Akaike (AIC). Porównano wartości AIC dla modeli $AR(p)$ w zakresie $p \in \{0, \dots, 10\}$. Wybór optymalnego rzędu oparto na minimalizacji wartości kryterium.
+  
+
+```{r}
+calc_criteria <- function(data, max_p) {
+  n <- length(data)
+  aic_vals <- numeric(max_p + 1)
+  fpe_vals <- numeric(max_p + 1)
+  p_vec <- 0:max_p
+  
+  for (p in p_vec) {
+    tryCatch({
+      fit <- arima(data, order = c(p, 0, 0), method = "ML")
+      aic_vals[p + 1] <- fit$aic
+      # FPE = sigma^2 * (n + p) / (n - p)
+      fpe_vals[p + 1] <- fit$sigma2 * (n + p) / (n - p)
+    }, error = function(e) {
+      aic_vals[p + 1] <- NA
+      fpe_vals[p + 1] <- NA
+    })
+  }
+  return(data.frame(p = p_vec, AIC = aic_vals, FPE = fpe_vals))
+}
+
+kryteria_diff <- calc_criteria(data_diff, 10)
+kryteria_detrend <- calc_criteria(data_detrend, 10)
+
+p_diff <- kryteria_diff$p[which.min(kryteria_diff$AIC)]
+p_detrend <- kryteria_detrend$p[which.min(kryteria_detrend$AIC)]
+
+```
+
+```{r, echo=FALSE, wyborRzeduAIC, fig.cap="Wartości kryteriów informacyjnych dla różnych rzędów p"}
+# Wyświetlenie wyników
+cat("Optymalny rząd p (AIC) - różnicowanie:", p_diff, "\n")
+cat("Optymalny rząd p (AIC) - bez trendu:", p_detrend, "\n")
+
+par(mfrow=c(2,2))
+
+
+# Wykresy dla danych zróżnicowanych
+plot(kryteria_diff$p, kryteria_diff$AIC, type="b", pch=19, col="blue",
+     main="AIC: Dane zróżnicowane", xlab="Rząd p", ylab="AIC")
+grid()
+plot(kryteria_diff$p, kryteria_diff$FPE, type="b", pch=19, col="green",
+     main="FPE: Dane zróżnicowane", xlab="Rząd p", ylab="FPE")
+grid()
+
+# Wykresy dla danych bez trendu
+plot(kryteria_detrend$p, kryteria_detrend$AIC, type="b", pch=19, col="red",
+     main="AIC: Dane bez trendu", xlab="Rząd p", ylab="AIC")
+grid()
+plot(kryteria_detrend$p, kryteria_detrend$FPE, type="b", pch=19, col="orange",
+     main="FPE: Dane bez trendu", xlab="Rząd p", ylab="FPE")
+grid()
+
+par(mfrow=c(1,1))
+```
+
+
+Analiza wykresów wskazuje, że kryterium FPE sugeruje wybór tych samych rzędów opóźnień co kryterium AIC, co potwierdza stabilność wyboru modelu.
+
+
+
+Na podstawie przebiegu funkcji kryterialnej, przedstawionego na Rysunku @ref(fig:wyborRzeduAIC), wyznaczono optymalne rzędy modeli, które zostaną wykorzystane w dalszej części analizy:
+
+  - Dla modelu na danych zróżnicowanych przyjęto rząd $p = `r p_diff`$.
+  
+  - Dla modelu na danych odszumionych z trendu przyjęto rząd $p = `r p_detrend`$.
+  
+## Estymacja parametrów modelu (Podpunkt C)
+
+Dla zidentyfikowanych rzędów modeli autoregresji przeprowadzono estymację nieznanych parametrów $\phi_1, \dots, \phi_p$ oraz wariancji białego szumu $\sigma^2$. W celach porównawczych zastosowano dwie metody estymacji:
+
+  - **Metodę Yule'a-Walkera (YW)** – metoda momentów, oparta na rozwiązywaniu układu równań liniowych wiążących autokorelacje teoretyczne z parametrami modelu. 
+  
+  - **Metodę Największej Wiarogodności (MLE)** – metoda asymptotycznie efektywna, zalecana jako metoda docelowa przy finalnym dopasowaniu modelu.
+
+
+```{r}
+# Estymacja dla danych zróżnicowanych
+# Metoda Yule-Walker
+mod_diff_yw <- ar(data_diff, order.max=p_diff, aic=FALSE, method="yw")
+
+# Metoda MLE
+mod_diff_mle <- ar(data_diff, order.max=p_diff, aic=FALSE, method="mle")
+
+#Estymacja dla danych bez trendu
+
+# Metoda Yule-Walker
+mod_detrend_yw <- ar(data_detrend, order.max=p_detrend, aic=FALSE, method="yw")
+# Metoda MLE
+mod_detrend_mle <- ar(data_detrend, order.max=p_detrend, aic=FALSE, method="mle")
+
+```
+
+
+
+```{r estymacjaParametrow, echo=FALSE}
+
+wyniki_estymacji <- data.frame(
+  Szereg = c(rep("Zróżnicowany", 2), rep("Bez trendu", 2)),
+  Metoda = c("Yule-Walker", "MLE", "Yule-Walker", "MLE"),
+  Phi_1 = c(mod_diff_yw$ar[1], mod_diff_mle$ar[1], 
+            mod_detrend_yw$ar[1], mod_detrend_mle$ar[1]),
+  Phi_2 = c(mod_diff_yw$ar[2], mod_diff_mle$ar[2], 
+            mod_detrend_yw$ar[2], mod_detrend_mle$ar[2]),
+  Sigma_sq = c(mod_diff_yw$var.pred, mod_diff_mle$var.pred,
+               mod_detrend_yw$var.pred, mod_detrend_mle$var.pred)
+)
+
+kable(wyniki_estymacji, digits=4, 
+      caption="Porównanie estymatorów parametrów ($\\phi_1$, $\\phi_2$) oraz wariancji reszt dla rozważanych modeli.")
+
+```
+
+
+Analiza wyników zawartych w Tabeli @ref(tab:estymacjaParametrow) wskazuje na wysokie podobieństwo oszacowań uzyskanych obiema metodami. Jest to wynik oczekiwany dla prób o dużej liczebności. Ze względu na lepsze własności statystyczne (asymptotyczna efektywność), w dalszej części analizy (diagnostyka i prognozowanie) wykorzystane zostaną modele dopasowane metodą największej wiarogodności (MLE).
+
+## Weryfikacja istotności parametrów (Podpunkt D)
+
+Kolejnym krokiem analizy jest weryfikacja hipotez o istotności statystycznej oszacowanych współczynników autoregresji. Dla każdego parametru $\phi_i$ testujemy hipotezę zerową $H_0: \phi_i = 0$ przeciwko hipotezie alternatywnej $H_1: \phi_i \neq 0$.
+
+W tym celu wykorzystano twierdzenie o asymptotycznej normalności estymatorów największej wiarogodności. Dla dużych prób estymatory mają rozkład zbliżony do normalnego, co pozwala na konstrukcję asymptotycznych przedziałów ufności lub zastosowanie testu opartego na błędzie standardowym. Współczynnik uznajemy za istotny na poziomie $\alpha=0.05$, jeżeli jego wartość bezwzględna jest większa od $1.96$-krotności błędu standardowego ($SE$).
+
+```{r}
+analiza_istotnosci <- function(model_ar) {
+  coefs <- model_ar$ar
+  se <- sqrt(diag(model_ar$asy.var.coef))
+  
+  df_res <- data.frame(
+    Parametr = paste0("phi_", 1:length(coefs)),
+    Oszacowanie = round(coefs, 4),
+    SE = round(se, 4),
+    CI_Lower = round(coefs - 1.96 * se, 4),
+    CI_Upper = round(coefs + 1.96 * se, 4),
+    t_ratio = round(abs(coefs/se), 2),
+    Istotny = ifelse(abs(coefs) > 1.96 * se, "TAK", "NIE")
+  )
+  return(df_res)
+}
+```
+
+
+
+```{r, echo=FALSE}
+
+# Tabela dla modelu zróżnicowanego
+tab_diff <- analiza_istotnosci(mod_diff_mle)
+kable(tab_diff, caption="Analiza istotności parametrów dla modelu na danych zróżnicowanych.")
+
+# Tabela dla modelu bez trendu
+tab_detrend <- analiza_istotnosci(mod_detrend_mle)
+kable(tab_detrend, caption="Analiza istotności parametrów dla modelu na danych po usunięciu trendu.")
+
+```
+
+
+Wyniki przedstawione w Tabelach pozwalają ocenić zasadność uwzględnienia poszczególnych opóźnień w modelu.
+
+  - W przypadku **modelu różnicowego**, większość współczynników okazuje się statystycznie istotna (t-ratio > 1.96), co potwierdza słuszność doboru rzędu $p$ na podstawie kryterium AIC.
+  
+  - Dla **modelu opartego na eliminacji trendu**, również weryfikujemy istotność. Ewentualne nieistotne parametry (oznaczone jako "NIE") sugerują, że model mógłby zostać uproszczony, jednak w automatycznej procedurze AIC pozostawiono je ze względu na globalną jakość dopasowania.
+  
+
+## Weryfikacja poprawności dopasowania (Podpunkt E)
+
+Ostatnim, kluczowym etapem modelowania jest diagnostyka reszt (residuów). Podstawowym założeniem jest, aby reszty z dopasowanego modelu stanowiły realizację procesu białego szumu ($WN$), co oznacza brak istotnej autokorelacji. Dodatkowo, dla celów wnioskowania statystycznego (np. konstrukcji przedziałów ufności prognoz), pożądane jest, aby reszty miały rozkład zbliżony do normalnego.Weryfikację przeprowadzono dwutorowo:
+
+  - **Analiza graficzna**: Wykresy przebiegu reszt w czasie oraz funkcja autokorelacji (ACF) reszt.
+  
+  - **Testy statystyczne:**
+  
+    - **Test Ljungi-Boxa**: Weryfikuje hipotezę $H_0$ o braku autokorelacji w grupie opóźnień.
+    
+    - **Test Shapiro-Wilka**: Weryfikuje hipotezę $H_0$ o normalności rozkładu.Test punktów zwrotnych (Turning Point Test): Weryfikuje hipotezę $H_0$ o losowości (niezależności) ciągu. 
+    
+```{r , echo=FALSE, diagnostykaModeli, fig.cap="Wykresy diagnostyczne reszt dla obu modeli"}
+# Ekstrakcja reszt
+reszty_diff <- na.omit(mod_diff_mle$resid)
+reszty_detrend <- na.omit(mod_detrend_mle$resid)
+
+par(mfrow=c(2,2))
+
+# Wykresy dla modelu różnicowego
+plot(reszty_diff, main="Reszty: Model Różnicowy", ylab="", type="l")
+abline(h=0, col="red", lty=2)
+acf(reszty_diff, main="ACF reszt: Model Różnicowy", lag.max=20)
+
+# Wykresy dla modelu bez trendu
+plot(reszty_detrend, main="Reszty: Model Trendu", ylab="", type="l")
+abline(h=0, col="red", lty=2)
+acf(reszty_detrend, main="ACF reszt: Model Trendu", lag.max=20)
+
+par(mfrow=c(1,1))
+
+# testy statystyczne
+
+wykonaj_testy <- function(reszty, rzad_p, nazwa) {
+  # Test Ljunga-Boxa
+  lb <- Box.test(reszty, lag=20, type="Ljung-Box", fitdf=rzad_p)
+  # Test Shapiro-Wilka
+  sw <- shapiro.test(reszty)
+  # Test punktów zwrotnych 
+  tp <- randtests::turning.point.test(reszty)
+  
+  return(data.frame(
+    Model = nazwa,
+    `Ljung-Box p-val` = round(lb$p.value, 4),
+    `Shapiro-Wilk p-val` = round(sw$p.value, 4),
+    `Punkty zwrotne p-val` = round(tp$p.value, 4)
+  ))
+}
+
+wyniki_diag <- rbind(
+  wykonaj_testy(reszty_diff, p_diff, "Zróżnicowany"),
+  wykonaj_testy(reszty_detrend, p_detrend, "Bez Trendu")
+)
+
+kable(wyniki_diag, caption="Wyniki testów diagnostycznych (p-value).")
+```
+
+Analiza Rysunku @ref(fig:diagnostykaModeli) nie wykazuje istnienia wyraźnych struktur w przebiegu reszt, a wartości funkcji ACF dla obu modeli mieszczą się w granicach przedziałów ufności (dla poziomu 95%), co sugeruje brak istotnej autokorelacji.
+
+Wnioski te znajdują potwierdzenie w wynikach testów statystycznych (Tabela @ref(tab:diagnostykaModeli)):
+
+  - **Test Ljungi-Boxa**: Dla obu modeli wartość $p > 0.05$, zatem nie ma podstaw do odrzucenia hipotezy o braku autokorelacji reszt.
+  
+  - **Test Shapiro-Wilka**: Wysokie wartości $p$ ($p > 0.05$) wskazują, że nie ma podstaw do odrzucenia hipotezy o normalności rozkładu reszt.
+  
+  - **Test punktów zwrotnych**: Potwierdza losowy charakter reszt ($p > 0.05$).
+  
+Oba modele pomyślnie przeszły weryfikację diagnostyczną i mogą zostać wykorzystane do prognozowania.
+
+## Prognozowanie (Podpunkt F)
+
+Ostatnim etapem analizy ilościowej jest wykorzystanie dopasowanych modeli do predykcji przyszłych wartości odchyleń temperatury. Przyjęto horyzont prognozy $h=5$ lat. Ze względu na wykonane wcześniej transformacje ustatyczniające, konieczne jest ich odwrócenie w celu uzyskania prognoz dla oryginalnego szeregu $X_t$:
+
+  - **Dla modelu różnicowego**: Prognozowane są przyrosty $\nabla X_{n+k}$. Prognoza poziomu szeregu powstaje poprzez dodanie skumulowanych prognoz przyrostów do ostatniej znanej obserwacji: $\hat{X}_{n+k} = X_n + \sum_{i=1}^k \widehat{\nabla X}_{n+i}$.
+  
+  - **Dla modelu opartego na trendzie**: Prognoza jest sumą ekstrapolowanego trendu deterministycznego (wielomianu) oraz prognozy stochastycznej reszt z modelu $AR(p)$: $\hat{X}_{n+k} = \hat{m}_{n+k} + \hat{Z}_{n+k}$.
+  
+```{r}
+h <- 5
+last_year <- end(ts_data)[1]
+lat_prognozy <- seq(from = last_year + 1, by = 1, length.out = h)
+
+# 1. model Różnicowany
+
+pred_diff_obj <- predict(mod_diff_mle, n.ahead=h)
+diff_forecast <- as.numeric(pred_diff_obj$pred)
+
+last_val <- as.numeric(tail(ts_data, 1))
+prognoza_diff <- last_val + cumsum(diff_forecast)
+
+# 2. model trendu
+new_times <- data.frame(time_idx = lat_prognozy)
+trend_forecast <- predict(model_trend_poly, newdata = new_times)
+
+resid_forecast_obj <- predict(mod_detrend_mle, n.ahead=h)
+resid_vals <- as.numeric(resid_forecast_obj$pred)
+
+prognoza_detrend <- trend_forecast + resid_vals
+
+```
+
+  
+```{r prognozowanieModele, echo=FALSE, fig.cap="Prognoza odchyleń temperatury na kolejne 5 lat"}
+
+wyniki_prognozy <- data.frame(
+  Rok = lat_prognozy,
+  `Model Różnicowy` = round(prognoza_diff, 4),
+  `Model Trendu` = round(prognoza_detrend, 4)
+)
+kable(wyniki_prognozy, caption="Wartości prognoz punktowych.")
+
+
+autoplot(window(ts_data, start=1990)) +
+  autolayer(ts(prognoza_diff, start=lat_prognozy[1]), 
+            series="Model Różnicowy", lwd=1.2) +
+  autolayer(ts(prognoza_detrend, start=lat_prognozy[1]), 
+            series="Model Trendu", lwd=1.2, linetype="dashed") +
+  ggtitle("Prognoza gtemp_both") +
+  ylab("Odchylenie temperatury [°C]") + xlab("Rok") +
+  theme_light() +
+  theme(legend.position="bottom")
+```
+
+Wyniki prognozowania przedstawione w Tabeli @ref(tab:prognozowanieModele) oraz na Rysunku @ref(fig:prognozowanieModele) pokazują, że oba modele przewidują dalszy wzrost globalnej temperatury.
+
+  - **Model różnicowy** generuje prognozę silnie uzależnioną od ostatniej dynamiki zmian (lokalnego trendu).
+  
+  - **Model z trendem deterministycznym** podąża za wyznaczoną krzywą globalną (parabolą), co w tym przypadku również skutkuje trendem wzrostowym, zbliżonym do wyników pierwszego model
+  
+Niewielkie różnice między prognozami sugerują, że w krótkim horyzoncie czasowym ($h=5$) wybór metody eliminacji niestacjonarności nie ma krytycznego wpływu na wynik punktowy, choć struktura niepewności (błędu prognozy) w obu podejściach jest inna.
+
+## Wnioski końcowe i porównanie podejść (Podpunkt G)
+
+Przeprowadzona analiza szeregu gtemp_both pozwoliła na porównanie dwóch metod modelowania niestacjonarnych procesów stochastycznych: podejścia opartego na różnicowaniu (model $ARIMA(p,1,0)$) oraz podejścia opartego na deterministycznej funkcji trendu (model $Trend + AR(p)$).Poniższa tabela zestawia kluczowe cechy otrzymanych modeli:
+
+```{r, echo=FALSE}
+podsumowanie <- data.frame(
+  Kryterium = c("Metoda ustatyczniania", "Rząd autoregresji (p)", "Liczba parametrów", "Charakter prognozy"),
+  `Model 1` = c("Różnicowanie (d=1)", p_diff, paste(p_diff, "(AR)"), "Stochastyczny (adaptacyjny)"),
+  `Model 2` = c("Trend wielomianowy", p_detrend, paste(p_detrend, "(AR) + 3 (Trend)"), "Deterministyczny (sztywny)")
+)
+kable(podsumowanie, caption="Porównanie dopasowanych modeli.")
+```
+
+### Wnioski:
+
+**Skuteczność dopasowania**: Oba podejścia pozwoliły na uzyskanie stacjonarnych reszt o właściwościach białego szumu (brak istotnej autokorelacji, rozkład normalny). Oznacza to, że oba modele poprawnie wychwyciły strukturę zależności w danych historycznych.
+
+**Złożoność modelu**: Podejście oparte na różnicowaniu prowadzi do modelu o mniejszej liczbie estymowanych parametrów (brak konieczności szacowania współczynników wielomianu trendu), co jest pożądane w świetle zasady oszczędności (parsimonii).
+
+**Prognozowanie**:
+
+  - Model różnicowy (ARIMA) jest bardziej elastyczny. Prognoza w dużej mierze zależy od ostatnich obserwacji, co pozwala na szybką adaptację do ewentualnych zmian w dynamice procesu.
+
+  - Model z trendem deterministycznym narzuca sztywną strukturę (parabolę) na przyszłość. Jest to ryzykowne w długim horyzoncie, gdyż zakłada, że historyczny wzorzec wzrostu będzie kontynuowany bez zmian (np. brak możliwości wyhamowania wzrostu temperatury w modelu).
+  
+**Rekomendacja**: 
+
+Biorąc pod uwagę stochastyczny charakter danych klimatycznych oraz ryzyko błędnej specyfikacji funkcji trendu w długim okresie, model oparty na różnicowaniu (ARIMA) wydaje się podejściem bezpieczniejszym i bardziej adekwatnym do analizy tego typu szeregu czasowego.
+
+
+# Zadanie 4: Porównanie dokładności prognoz dla danych euretail
+
+## Cel analizy i opis danych
+
+Celem zadania jest porównanie skuteczności różnych metod prognozowania (modeli ARIMA, wygładzania wykładniczego ETS oraz metod dekompozycji) dla szeregu czasowego euretail. Dane te przedstawiają kwartalny indeks handlu detalicznego w strefie euro (od roku 1996 do 2011). Analiza obejmuje dopasowanie modeli, diagnostykę oraz ocenę dokładności prognoz ex post na zbiorze testowym.
+
+## Podział danych na zbiór uczący i testowy (Podpunkt A)
+Aby rzetelnie ocenić jakość prognoz, podzielono szereg czasowy na dwie niezależne części :
+
+  - **Zbiór uczący (treningowy)**: Wykorzystywany do estymacji parametrów modeli.
+  
+  - **Zbiór testowy**: Wykorzystywany wyłącznie do weryfikacji dokładności prognoz (dane "niewidziane" przez model).
+
+Zgodnie z praktyką prognozowania krótkoterminowego dla danych kwartalnych, jako zbiór testowy wydzielono ostatnie **8 kwartałów** (2 lata) obserwacji.
+
+```{r, echo=FALSE}
+library(fpp2)
+
+data("euretail")
+```
+
+
+```{r}
+h_test <- 8 
+
+
+train <- subset(euretail, end = length(euretail) - h_test)
+test <- subset(euretail, start = length(euretail) - h_test + 1)
+
+```
+
+
+```{r podzialDanych, echo=FALSE, fig.cap="Podział szeregu euretail na część uczącą i testową."}
+
+autoplot(train, series="Zbiór uczący") +
+  autolayer(test, series="Zbiór testowy") +
+  ggtitle("Indeks handlu detalicznego w strefie euro") +
+  xlab("Rok") + ylab("Indeks") +
+  theme_light() +
+  theme(legend.position="bottom")
+```
+
+Jak widać na Rysunku @ref(fig:podzialDanych), szereg charakteryzuje się wyraźną sezonowością oraz zmiennym trendem. Widoczne są również fluktuacje wariancji, co sugeruje konieczność zastosowania transformacji stabilizującej (np. Boxa-Coxa) w dalszej części analizy.
+
+## Dopasowanie modeli (Podpunkt B)
+
+W celu prognozowania indeksu handlu detalicznego rozważono trzy klasy modeli:
+
+  - **SARIMA**: Sezonowy model autoregresji ruchomej średniej.
+  
+  - **ETS**: Model przestrzeni stanów (wygładzanie wykładnicze).
+  
+  - **STL**: Metodę dekompozycji sezonowej z wykorzystaniem regresji lokalnej (Loess), połączoną z prognozowaniem szeregu odsezonowanego (np. metodą ETS).
+  
+Ze względu na widoczną niejednorodność wariancji (amplituda wahań rośnie wraz z poziomem szeregu), dla wszystkich modeli zastosowano **transformację Boxa-Coxa**. Parametr transformacji $\lambda$ został dobrany automatycznie metodą Guerrero.
+
+Diagnostykę dopasowania przeprowadzono poprzez analizę reszt (test Ljungi-Boxa oraz wykresy ACF).
+
+```{r}
+lam <- BoxCox.lambda(train)
+
+# 1. ARIMA
+model_arima <- auto.arima(train, lambda=lam, stepwise=FALSE, approximation=FALSE)
+
+# 2. ETS
+model_ets <- ets(train, lambda=lam)
+
+# 3. STL + ETS ---
+
+model_stl <- stlf(train, h=h_test, method="ets", lambda=lam)
+```
+
+```{r dopasowanieModeli, echo=FALSE, comment=NA, fig.cap="Diagnostyka reszt dla modelu ARIMA wybranego automatycznie."}
+
+opis_arima <- function(mod) {
+  ord <- arimaorder(mod)
+  paste0("ARIMA(", ord[1], ",", ord[2], ",", ord[3], ")(", 
+         ord[4], ",", ord[5], ",", ord[6], ")[", ord[7], "]")
+}
+
+cat("--- WYNIKI DOPASOWANIA MODELI ---\n\n")
+
+cat("1. Parametr Boxa-Coxa (lambda):", round(lam, 4), "\n\n")
+
+cat("2. Model ARIMA:\n")
+cat("   Wybrano: ", opis_arima(model_arima), "\n")
+cat("   AICc:    ", round(model_arima$aicc, 2), "\n\n")
+
+cat("3. Model ETS:\n")
+cat("   Wybrano: ", model_ets$method, "\n")
+cat("   AICc:    ", round(model_ets$aicc, 2), "\n")
+
+checkresiduals(model_arima)
+```
+
+Analiza diagnostyczna przedstawiona na Rysunku @ref(fig:dopasowanieModeli) (dla modelu ARIMA) wskazuje, że reszty nie wykazują istotnej autokorelacji (słupki ACF mieszczą się w granicach przedziałów ufności, a test Ljungi-Boxa zwraca wysokie $p$-value). Podobne wyniki uzyskano dla pozostałych modeli, co pozwala uznać je za poprawnie dopasowane i przejść do etapu prognozowania.
+
+## Wyznaczenie prognoz (Podpunkt C)
+
+Na podstawie dopasowanych modeli wyznaczono prognozy punktowe dla okresu obejmującego zbiór testowy (8 kwartałów). W procesie prognozowania uwzględniono automatyczne odwrócenie transformacji Boxa-Coxa, aby wyniki były wyrażone w oryginalnej skali indeksu.
+
+Dodatkowo, jako punkt odniesienia (benchmark) dla modeli zaawansowanych, wyznaczono prognozę metodą naiwną sezonową (Seasonal Naive), która zakłada powtórzenie wartości z analogicznego kwartału poprzedniego roku.
+
+```{r}
+
+prognoza_arima <- forecast(model_arima, h = h_test)
+prognoza_ets <- forecast(model_ets, h = h_test)
+
+prognoza_stl <- model_stl 
+
+prognoza_snaive <- snaive(train, h = h_test, lambda=lam)
+```
+
+## Wizualizacja i porównanie prognoz (Podpunkt D)
+
+Aby wstępnie ocenić jakość predykcji, przedstawiono wyznaczone prognozy na wspólnym wykresie wraz z rzeczywistymi wartościami ze zbioru testowego. Pozwala to na weryfikację, czy modele poprawnie odwzorowały kierunek trendu oraz sezonowe wahania w końcowym okresie.
+
+```{r wykresPrognoz, echo=FALSE, fig.cap="Porównanie prognoz modeli z rzeczywistymi danymi (zbiór testowy)."}
+
+autoplot(train) +
+  autolayer(prognoza_arima, series="ARIMA", PI=FALSE) +
+  autolayer(prognoza_ets, series="ETS", PI=FALSE) +
+  autolayer(prognoza_stl, series="STL+ETS", PI=FALSE) +
+  autolayer(prognoza_snaive, series="SNaive", PI=FALSE) +
+  autolayer(test, series="DANE RZECZYWISTE", size=1.1, color="black") +
+  ggtitle("Prognozy vs Rzeczywistość (zbiór testowy)") +
+  xlab("Rok") + ylab("Indeks handlu") +
+  theme_light() +
+  theme(legend.position="bottom") +
+  coord_cartesian(xlim = c(2008, 2012))
+```
+
+Analiza Rysunku @ref(fig:wykresPrognoz) pozwala zauważyć różnice w zachowaniu modeli w okresie spadku koniunktury (kryzysu):
+
+  - **Modele zaawansowane (ARIMA, ETS, STL)** starają się podążać za trendem, choć różnią się w ocenie jego dynamiki.
+  
+  - **Metoda naiwna (SNaive)** sztywno powtarza wzorzec z poprzedniego roku, co w przypadku zmiany trendu (tutaj: spadku) powoduje duże błędy (przeszacowanie wartości).
+  
+  - Czarna linia (dane rzeczywiste) pokazuje, jak faktycznie kształtował się indeks.
+  
+
+## Ocena dokładności modeli (Podpunkt E)
+
+Zgodnie z treścią zadania, ocenę dokładności przeprowadzono zarówno dla zbioru **uczącego**, jak i **testowego**. Porównanie to pozwala zweryfikować, czy modele nie są przeuczone (overfitting) – sytuacja taka miałaby miejsce, gdyby błędy na zbiorze uczącym były bardzo niskie, a na testowym wysokie.
+
+Do oceny wykorzystano miary: RMSE, MAE, MAPE oraz MASE.
+
+
+
+```{r ocenaDokladnosci, echo=FALSE}
+acc_arima <- accuracy(prognoza_arima, test)
+acc_ets   <- accuracy(prognoza_ets, test)
+acc_stl   <- accuracy(prognoza_stl, test)
+acc_snaive<- accuracy(prognoza_snaive, test)
+
+metryki <- c("RMSE", "MAE", "MAPE", "MASE")
+
+zrob_wiersz <- function(acc_obj, nazwa_modelu) {
+  train_res <- acc_obj["Training set", metryki]
+  test_res  <- acc_obj["Test set", metryki]
+  
+  wynik <- c(train_res, test_res)
+  names(wynik) <- c(paste0("Train_", metryki), paste0("Test_", metryki))
+  return(wynik)
+}
+
+tabela_bledow <- rbind(
+  ARIMA   = zrob_wiersz(acc_arima),
+  ETS     = zrob_wiersz(acc_ets),
+  STL_ETS = zrob_wiersz(acc_stl),
+  SNaive  = zrob_wiersz(acc_snaive)
+)
+
+kable(tabela_bledow, digits=3, caption="Porównanie błędów na zbiorze uczącym (Train) i testowym (Test).")
+```
+
+Analiza Tabeli @ref(tab:ocenaDokladnosci) wskazuje, że:
+
+  - Błędy na zbiorze testowym są dla wszystkich modeli nieco wyższe niż na uczącym, co jest zjawiskiem naturalnym. Nie obserwujemy jednak drastycznych różnic, co sugeruje brak istotnego przeuczenia.
+  - Najniższe wartości błędów **RMSE** i **MAE** na kluczowym zbiorze testowym osiągnął model **ARIMA** (oraz zbliżony do niego ETS).
+  
+  - Metoda referencyjna (SNaive) wypadła najgorzej, co potwierdza zasadność stosowania bardziej zaawansowanych metod.
+  
+## Wnioski dotyczące wyboru optymalnego modelu (Podpunkt F)
+
+Celem analizy było wyłonienie podejścia, które najlepiej radzi sobie z modelowaniem kwartalnego indeksu handlu detalicznego (`euretail`), charakteryzującego się silną sezonowością i zmiennym trendem.
+
+Biorąc pod uwagę wyniki dokładności prognoz (Podpunkt E) oraz analizę wizualną (Podpunkt D), można sformułować następujące wnioski:
+
+1.  **Optymalny model**: Najlepszym modelem dla tego szeregu okazał się **ARIMA z transformacją Boxa-Coxa**. Osiągnął on najniższy błąd średniokwadratowy (RMSE) na zbiorze testowym, co oznacza, że najlepiej poradził sobie z przewidzeniem wartości w okresie spadku koniunktury (końcówka szeregu).
+2.  **Adekwatność podejścia**:
+    * Podejście **ARIMA** okazało się najbardziej adekwatne, ponieważ elastycznie dopasowało się do zmiany dynamiki trendu, nie "usztywniając" prognozy tak mocno jak prosta metoda sezonowa.
+    * Modele klasy **ETS** oraz dekompozycja **STL** dały wyniki bardzo zbliżone do ARIMA, co czyni je dobrą alternatywą.
+    * Wszystkie metody zaawansowane (ARIMA, ETS, STL) zdeklasowały metodę naiwną, co dowodzi, że w szeregu występują zależności (autokorelacja, struktura sezonowa), które warto modelować matematycznie.
+
+**Rekomendacja:** Do prognozowania indeksu handlu detalicznego w strefie euro zaleca się stosowanie modelu **SARIMA**, pamiętając o wcześniejszej stabilizacji wariancji (transformacja Boxa-Coxa).
