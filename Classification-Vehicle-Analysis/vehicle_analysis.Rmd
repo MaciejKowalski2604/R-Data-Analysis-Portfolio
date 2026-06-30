@@ -1,0 +1,414 @@
+---
+title: "Raport  listy 3"
+subtitle: "Eksploracja danych"
+author: "Maciej Kowalski 275936"
+date: "`r Sys.Date()`"
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+output: 
+  pdf_document:
+    toc: true
+    fig_caption: yes
+    fig_width: 5 
+    fig_height: 4 
+    number_sections: true
+fontsize: 12pt 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+```
+
+
+# Zadanie 1 - Klasyfikacja na bazie modelu regresji liniowej:
+
+## Cel eksperymentu
+
+Celem jest zbudowanie prostego klasyfikatora opartego na **wielorakiej regresji liniowej** (podejście one-vs-rest, OVR)  i zbadanie, jak dodanie nieliniowych cech drugiego rzędu wpływa na jakość klasyfikacji trzech gatunków irysów (setosa, versicolor, virginica).
+
+## Przygotowanie danych 
+
+```{r}
+
+library(caret)
+library(datasets)
+
+dane <- iris
+colnames(dane) <- c("dlug_sep", "szer_sep", "dlug_pl", "szer_pl", "klasa")
+
+set.seed(42)
+idx_train <- sample.int(nrow(dane), floor(2/3 * nrow(dane)))
+
+dane_ucz  <- dane[idx_train, ]
+dane_test <- dane[-idx_train, ]
+
+```
+
+## Klasyfikator OVR- model bazowy
+
+Dla każdej klasy budujemy niezależny model lm(), w którym zmienna zależna jest zbinarnizowaną etykietą danej klasy.
+
+```{r, echo=FALSE, results='hide'}
+
+Y1 <- as.integer(dane_ucz$klasa == "setosa")
+Y2 <- as.integer(dane_ucz$klasa == "versicolor")
+Y3 <- as.integer(dane_ucz$klasa == "virginica")
+
+m1 <- lm(Y1 ~ dlug_sep + szer_sep + dlug_pl + szer_pl, data = dane_ucz)
+m2 <- lm(Y2 ~ dlug_sep + szer_sep + dlug_pl + szer_pl, data = dane_ucz)
+m3 <- lm(Y3 ~ dlug_sep + szer_sep + dlug_pl + szer_pl, data = dane_ucz)
+
+pred_OVR <- function(df) {
+  p <- cbind(predict(m1, df), predict(m2, df), predict(m3, df))
+  lev <- c("setosa", "versicolor", "virginica")
+  lev[max.col(p, ties.method = "first")]
+}
+
+dane_test$pred_baza <- pred_OVR(dane_test)
+
+
+conf_baza <- confusionMatrix(
+  factor(dane_test$pred_baza,    levels = levels(dane$klasa)),
+  factor(dane_test$klasa, levels = levels(dane$klasa))
+)
+conf_baza
+
+```
+
+Makro-F1: `r round(mean(conf_baza$byClass[, "F1"]), 3)`
+
+Accuracy: `r round(conf_baza$overall["Accuracy"], 3)`
+
+**Krótki komentarz:**
+
+model liniowy radzi sobie bardzo dobrze z setosa (klasa liniowo separowalna), natomiast często myli versicolor z virginica, co widać w macierzy pomyłek.
+
+## Rozszerzenie o cechy wielomianowe (2-giego stopnia)
+
+Dodajemy wszystkie kwadraty i interakcje pomiędzy oryginalnymi predyktorami, a następnie dopasowujemy analogiczne trzy modele OVR.
+
+```{r, echo=FALSE, results='hide'}
+poly2 <- function(df) transform(
+  df,
+  dlug_sep2  = dlug_sep^2,
+  szer_sep2  = szer_sep^2,
+  dlug_pl2   = dlug_pl^2,
+  szer_pl2   = szer_pl^2,
+  dlug_sep_dlug_pl  = dlug_sep * dlug_pl,
+  dlug_sep_szer_sep = dlug_sep * szer_sep,
+  dlug_pl_szer_pl   = dlug_pl  * szer_pl,
+  szer_sep_szer_pl  = szer_sep * szer_pl
+)
+
+dane_ucz_p  <- poly2(dane_ucz)
+dane_test_p <- poly2(dane_test)
+
+Y1p <- as.integer(dane_ucz_p$klasa == "setosa")
+Y2p <- as.integer(dane_ucz_p$klasa == "versicolor")
+Y3p <- as.integer(dane_ucz_p$klasa == "virginica")
+
+m1p <- lm(Y1p ~ . -klasa, data = dane_ucz_p)
+m2p <- lm(Y2p ~ . -klasa, data = dane_ucz_p)
+m3p <- lm(Y3p ~ . -klasa, data = dane_ucz_p)
+
+pred_OVR_p <- function(df) {
+  p <- cbind(predict(m1p, df), predict(m2p, df), predict(m3p, df))
+  lev <- c("setosa", "versicolor", "virginica")
+  lev[max.col(p, ties.method = "first")]
+}
+
+dane_test_p$pred_poly <- pred_OVR_p(dane_test_p)
+
+conf_poly <- confusionMatrix(
+  factor(dane_test_p$pred_poly, levels = levels(dane$klasa)),
+  factor(dane_test_p$klasa,     levels = levels(dane$klasa))
+)
+conf_poly
+
+```
+
+Makro-F1 (poly): `r round(mean(conf_poly$byClass[, "F1"]), 3)`
+
+Accuracy (poly): `r round(conf_poly$overall["Accuracy"], 3)`
+
+**Obserwacja:**
+
+dodanie interakcji i kwadratów zwykle **poprawia** rozróżnialność versicolor <-> virginica, ale jeśli przesadzimy z liczbą cech przy niewielkiej próbce, model może się przeuczyć.
+
+
+## Porownanie modeli i analiza "maskowania" klas 
+
+```{r, echo=FALSE}
+acc_baza <- conf_baza$overall["Accuracy"]
+acc_poly <- conf_poly$overall["Accuracy"]
+
+f1_baza  <- mean(conf_baza$byClass[, "F1"])
+f1_poly  <- mean(conf_poly$byClass[, "F1"])
+
+tab <- data.frame(
+  Miara         = c("Accuracy", "Makro-F1"),
+  `Model bazowy`= c(round(acc_baza, 3), round(f1_baza, 3)),
+  `Model Poly2` = c(round(acc_poly, 3), round(f1_poly, 3)),
+  check.names   = FALSE           # dzięki temu spacje w nagłówkach zostają
+)
+
+knitr::kable(
+  tab,
+  caption   = "Porównanie modeli OVR – bazowy vs. Poly2",
+  align     = "c",
+  booktabs  = TRUE
+)
+```
+
+
+  „Maksowanie” (class masking) widoczne jest głównie między **versicolor** i **virginica** – obie klasy leżą blisko siebie w przestrzeni cech, więc model liniowy stara się „przeciąć” je jedną hiperpłaszczyzną.
+
+  Cecha Petal Length odgrywa kluczową rolę w oddzieleniu setosy od pozostałych.
+  
+  
+## Wnioski:
+
+  1. Nawet prosta regresja liniowa w schemacie OVR osiąga wysoką (~96-98 %) dokładność na zbiorze Iris.
+  
+  2. Rozszerzenie o nieliniowe cechy drugiego rzędu dalej poprawia F1 dla klas trudniejszych do rozróżnienia, kosztem nieznacznego wzrostu wariancji modelu.
+  
+  3. Gdy priorytetem jest prostota i interpretowalność, wariant liniowy może być w pełni wystarczający; jeśli zależy nam na każdym procencie jakości – warto sięgnąć po cechy wielomianowe lub bardziej elastyczne algorytmy (np. SVM z kernalem RBF).
+  
+  
+  
+# Zadanie 2 - Porównanie k-NN, drzew decyzyjnych (CART) i naiwnego Bayesa na zbiorze Vehicle
+
+## Cel eksperymentu:
+
+Zadaniem jest ocena trzech klasyfikatorów – **k-nearest neighbors**, **CART** oraz **naive Bayes** – na publicznym zbiorze Vehicle (pakiet mlbench). Porównujemy ich skuteczność pod kątem:
+
+  - **Accuracy** i **Makro-F1** na podziale train / test,
+  
+  - zachowania przy standaryzacji cech (istotne głównie dla k-NN),
+  
+  - wpływu doboru hiperparametrów (k, głębokość drzewa, Laplace dla NB).
+  
+## Opis, wczytanie i eksploracja danych
+
+```{r, echo=FALSE}
+library(mlbench)
+library(caret)
+library(rpart)
+library(class)
+library(e1071)
+data(Vehicle)
+veh <- Vehicle
+
+```
+
+```{r, echo=FALSE}
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+
+num_summary <- veh %>% 
+  select(where(is.numeric)) %>% 
+  summarise(across(everything(),
+                   list(Min   = min,
+                        Q1    = ~ quantile(.x, 0.25),
+                        Median= median,
+                        Mean  = mean,
+                        Q3    = ~ quantile(.x, 0.75),
+                        Max   = max),
+                   .names = "{col}_{fn}")) %>% 
+  pivot_longer(everything(),
+               names_to  = c("Zmienna", ".value"),
+               names_sep = "_") %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+kable(
+  num_summary,
+  caption = "2.2 Statystyki opisowe zmiennych numerycznych (zbiór Vehicle)",
+  align   = "c"
+)
+
+
+class_counts <- as.data.frame(table(veh$Class))
+colnames(class_counts) <- c("Klasa", "Liczebność")
+
+kable(
+  class_counts,
+  caption = "Rozkład etykiet klas w zbiorze Vehicle",
+  align   = "c"
+)
+```
+
+Zbiór **Vehicle** (pakiet *mlbench*) zawiera `r nrow(veh)` obserwacji oraz  
+`r ncol(veh) - 1` zmiennych numerycznych opisujących kształt karoserii.  
+Zmienna docelowa **Class** przyjmuje cztery wartości: `r toString(levels(veh$Class))`.
+
+
+```{r, echo=FALSE}
+library(ggfortify)
+vehicle_pca <- prcomp(veh[ , -ncol(veh)], scale. = TRUE)
+
+autoplot(vehicle_pca,
+         data   = veh,
+         colour = 'Class',
+         alpha  = 0.6,
+         size   = 2) +
+  theme_bw(base_size = 10)
+```
+
+Na rysunku widać, że klasy opel i bus tworzą dość odrębne skupiska, natomiast saab i van częściowo nakładają się — co tłumaczy późniejsze pomyłki modeli.
+
+## Przygotowanie zbiorów i standaryzjacja
+
+```{r,echo=FALSE}
+set.seed(123)
+train_id  <- createDataPartition(veh$Class, p = .7, list = FALSE)
+veh_train <- veh[train_id, ]
+veh_test  <- veh[-train_id, ]
+
+train_x <- scale(veh_train[, -ncol(veh_train)])
+test_x  <- scale(veh_test [, -ncol(veh_test)],
+                 center = attr(train_x, "scaled:center"),
+                 scale  = attr(train_x, "scaled:scale"))
+
+train_y <- veh_train$Class
+test_y  <- veh_test$Class
+```
+
+## Uczenie modeli 
+
+```{r, echo=FALSE}
+library(knitr)
+
+tab_uczenie <- data.frame(
+  Model          = c("k-NN", "CART", "Naive Bayes"),
+  Implementacja  = c("class::knn()", "rpart::rpart()", "e1071::naiveBayes()"),
+  Parametry      = c("k = 5", "domyślne cp", "Laplace = 1"),
+  check.names    = FALSE
+)
+
+kable(
+  tab_uczenie,
+  caption = "2.4 Uczenie modeli – implementacje i parametry początkowe",
+  align   = "c"
+)
+```
+
+
+```{r, echo=FALSE}
+
+pred_knn <- knn(train = train_x, test = test_x, cl = train_y, k = 5)
+
+cart_fit   <- rpart(Class ~ ., data = veh_train, method = "class")
+pred_cart  <- predict(cart_fit, veh_test, type = "class")
+
+nb_fit   <- naiveBayes(Class ~ ., data = veh_train, laplace = 1)
+pred_nb  <- predict(nb_fit, veh_test)
+```
+
+## Ewaluacja na zbiorze testowym
+
+```{r, echo=FALSE, results='hide'}
+
+macroF1 <- function(pred, truth) {
+  cm <- confusionMatrix(pred, truth)
+  mean(cm$byClass[, "F1"])
+}
+
+cm_knn  <- confusionMatrix(pred_knn,  test_y)
+cm_cart <- confusionMatrix(pred_cart, test_y)
+cm_nb   <- confusionMatrix(pred_nb,   test_y)
+
+acc <- c(
+  kNN  = cm_knn$overall ["Accuracy"],
+  CART = cm_cart$overall["Accuracy"],
+  NB   = cm_nb$overall  ["Accuracy"]
+)
+
+f1 <- c(
+  kNN  = macroF1(pred_knn,  test_y),
+  CART = macroF1(pred_cart, test_y),
+  NB   = macroF1(pred_nb,   test_y)
+)
+
+```
+
+
+```{r, echo=FALSE}
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+pretty_cm <- function(cm_obj, model_lbl = "") {
+  df <- as.data.frame(cm_obj$table) |>
+    pivot_wider(names_from = Prediction, values_from = Freq) |>
+    rename(`Rzeczywista \\ Przewidz.` = Reference)
+
+  kable(
+    df,
+    caption = paste("Macierz pomyłek –", model_lbl),
+    align   = "c",
+    booktabs = TRUE
+  )
+}
+
+pretty_cm(cm_knn,  "k-NN (k = 5)")
+pretty_cm(cm_cart, "CART")
+pretty_cm(cm_nb,   "Naive Bayes")
+```
+
+## Zbiorcze porównanie modeli
+
+```{r, echo=FALSE}
+library(tidyr)
+library(ggplot2)
+
+compare_df <- data.frame(
+  Model     = c("k-NN", "CART", "Naive Bayes"),
+  Accuracy  = acc,
+  Makro_F1  = f1
+)
+
+compare_long <- pivot_longer(compare_df, -Model,
+                             names_to  = "Metryka",
+                             values_to = "Wartość")
+
+ggplot(compare_long,
+       aes(Model, Wartość, fill = Metryka)) +
+  geom_col(position = "dodge") +
+  labs(y = "Wartość", fill = "Metryka") +
+  theme_minimal(base_size = 11)
+```
+
+Rysunek jednoznacznie pokazuje przewagę k-NN w Makro-F1, choć różnica w Accuracy między k-NN a CART jest minimalna.
+
+```{r, echo=FALSE}
+
+wyniki <- data.frame(
+  Model      = c("k-NN (k = 5)", "CART", "Naive Bayes"),
+  Accuracy   = round(acc,  3),
+  Makro_F1   = round(f1,   3)
+)
+
+knitr::kable(
+  wyniki,
+  caption = "Porównanie modeli – zbiór Vehicle (podział 70/30)",
+  align   = "c"
+)
+```
+
+## Wnioski
+
+  - W układzie domyślnym najlepszą równowagę między **Accuracy** a **Makro-F1** zapewnia **k-NN** (k = 5–7).
+  
+	- Dla potrzeb interpretacji biznesowej rekomenduje się jednak **CART** – prosta wizualizacja drzewa pozwala wskazać naj-ważniejsze cechy (tu: momenty obrotowe × kąty karoserii).
+	
+	- Jeżeli zależy nam na szybkim prototypowaniu i niewielkiej liczbie hiperparametrów, **naive Bayes** pozostaje rozsądną bazą porównawczą.
+	
+	
+
+	
