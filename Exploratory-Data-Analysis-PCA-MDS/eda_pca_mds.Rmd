@@ -1,0 +1,558 @@
+---
+title: "Raport listy 2"
+subtitle: "Eksploracja danych"
+author: "Maciej Kowalski 275936"
+date: "`r Sys.Date()`"
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+output: 
+  pdf_document:
+    toc: true
+    fig_caption: yes
+    fig_width: 5 
+    fig_height: 4 
+    number_sections: true
+fontsize: 12pt 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+```
+
+# Zadanie 1:
+
+ **Dyskretyzajca cech ciągłych** 
+
+## Podpunkt A - Dane
+
+Zbiór danych `iris` pochodzi z pakietu **datasets** w R i zawiera pomiary długości i szerokości kielicha (`Sepal.Length`, `Sepal.Width`) oraz płatka (`Petal.Length`, `Petal.Width`) dla trzech gatunków irysów: *setosa*, *versicolor* i *virginica* (Fisher, 1936).
+
+
+## Podpunkt B - Wybór cech o najlepszej i najgorszej zdolności dyskretyzacji
+
+  1. **Wczytanie danych i podstawowe statystyki**  
+  
+```{r, echo=FALSE}
+library(datasets)
+irysy_dane <- iris
+
+```
+
+
+```{r, echo=FALSE, results='asis'}
+library(knitr)
+
+sum_stats <- as.data.frame(
+  do.call(cbind, lapply(irysy_dane[, 1:4], summary))
+)
+colnames(sum_stats) <- names(irysy_dane)[1:4]
+
+kable(
+  sum_stats,
+  digits = 2,
+  caption = "Podsumowanie statystyk opisowych cech numerycznych w zbiorze iris"
+)
+```
+
+
+  2. **Boxploty dla każdej zmiennej względem gatunku**
+
+```{r, echo=FALSE}
+par(mfrow = c(2, 2))
+
+boxplot(Sepal.Length ~ Species, data = iris, main = "Sepal.Length")
+boxplot(Sepal.Width  ~ Species, data = iris, main = "Sepal.Width")
+boxplot(Petal.Length ~ Species, data = iris, main = "Petal.Length")
+boxplot(Petal.Width  ~ Species, data = iris, main = "Petal.Width")
+
+par(mfrow = c(1, 1))
+```
+
+  3. **Wnioski:**
+
+  - Najlepsza zdolność dyskryminacyjna: **Petal.Length** — wyraźne różnice między klasami.
+  
+  - Najgorsza zdolność dyskryminacyjna: **Sepal.Width** — nakładające się rozkłady.
+
+## Podpunkt C - Porównanie nienadzorowanych metod dyskretyzacji (K = 3)
+
+Wykorzystujemy pakiet arules::discretize() oraz własne przedziały na bazie tercyli.
+
+```{r, echo=FALSE}
+library(arules)
+```
+
+```{r, echo=FALSE}
+  # PETAL LENGHT 
+p1_pl <- quantile(irysy_dane$Petal.Length, probs = 1/3)
+p2_pl <- quantile(irysy_dane$Petal.Length, probs = 2/3)
+
+int_pl <- discretize(irysy_dane$Petal.Length, method = "interval",   breaks = 3)       # equal width
+freq_pl <- discretize(irysy_dane$Petal.Length, method = "frequency", breaks =  3)       # equal frequency
+clust_pl <- discretize(irysy_dane$Petal.Length, method = "cluster",   breaks = 3)       # k-means
+manual_pl <- cut(irysy_dane$Petal.Length, breaks = c(min(irysy_dane$Petal.Length), p1_pl, p2_pl, max(irysy_dane$Petal.Length)), right = TRUE)  # własne przedziały
+
+
+```
+
+
+```{r, echo=FALSE, results='asis'}
+
+library(knitr)
+
+methods <- list(
+  "Equal width"       = int_pl,
+  "Equal frequency"   = freq_pl,
+  "K-means clustering"= clust_pl,
+  "Manual terciles"   = manual_pl
+)
+
+df <- do.call(rbind, lapply(names(methods), function(m) {
+  tb <- table(methods[[m]], irysy_dane$Species)
+  df_tb <- as.data.frame.matrix(tb)
+  df_tb$Category <- rownames(df_tb)
+  df_tb$Method   <- m
+  df_tb[, c("Method", "Category", colnames(tb))]
+}))
+
+kable(
+  df,
+  caption = "Dyskretyzacja Petal.Length – liczebności w przedziałach",
+  col.names = c("Metoda", "Kategoria", "setosa", "versicolor", "virginica"),
+  align = c("l", "l", "r", "r", "r")
+)
+```
+
+
+```{r, echo=FALSE}
+
+  #SPENTAL WIDTH 
+
+p1_sw <- quantile(irysy_dane$Sepal.Width, probs = 1/3)
+p2_sw <- quantile(irysy_dane$Sepal.Width, probs = 2/3)
+
+#dyskretyzacja 
+
+int_sw <- discretize(irysy_dane$Sepal.Width, method = "interval",   breaks = 3)       # equal width
+freq_sw <- discretize(irysy_dane$Sepal.Width, method = "frequency", breaks =  3)       # equal frequency
+clust_sw <- discretize(irysy_dane$Sepal.Width, method = "cluster",   breaks = 3)       # k-means
+manual_sw <- cut(irysy_dane$Sepal.Width, breaks = c(min(irysy_dane$Sepal.Width), p1_sw, p2_sw, max(irysy_dane$Sepal.Width)), right = TRUE)  # własne przedziały
+
+```
+
+
+```{r, echo=FALSE, results='asis'}
+
+library(knitr)
+
+methods_sw <- list(
+  "Equal width"       = int_sw,
+  "Equal frequency"   = freq_sw,
+  "K-means clustering"= clust_sw,
+  "Manual terciles"   = manual_sw
+)
+
+df_sw <- do.call(rbind, lapply(names(methods_sw), function(m) {
+  tb <- table(methods_sw[[m]], irysy_dane$Species)
+  df_tb <- as.data.frame.matrix(tb)
+  df_tb$Category <- rownames(df_tb)
+  df_tb$Method   <- m
+  df_tb[, c("Method", "Category", colnames(tb))]
+}))
+
+kable(
+  df_sw,
+  caption = "Dyskretyzacja Sepal.Width – liczebności w przedziałach",
+  col.names = c("Metoda", "Kategoria", "setosa", "versicolor", "virginica"),
+  align = c("l", "l", "r", "r", "r")
+)
+```
+
+
+  1. **Interpretacja wynikow:**
+
+Petal.Length:
+
+  - Metody cluster (k-means) i frequency dają najlepszą separację klas, z minimalną liczbą pomyłek.
+  
+  - Interval (równa szerokość) daje nieco gorszą separację, a ręczne przedziały (tercyle) są porównywalne do frequency.
+  
+Sepal.Width:
+
+  - Wszystkie metody słabo rozdzielają gatunki (duże nakładanie się klas).
+  
+  - Najlepiej wypada cluster, ale nawet tam separacja jest niewystarczająca.
+
+
+  2. **Wniosek**:
+  
+  Dla cechy o wysokiej zdolności dyskryminacyjnej (Petal.Length) najlepszy jest algorytm klastrowy (k-means), natomiast dla słabej cechy (Sepal.Width) różnice między metodami są marginalne.
+  
+  
+# ZADANIE 2 - ANALIZA SKłADOWYCH GŁÓWNYCH (PCA):
+
+## Podpunkt A - Dane
+
+Zbiór **City Quality of Life** (plik `dane_lista2_2.csv`) zawiera wskaźniki jakości życia (0–10) oraz informacje o lokalizacji miast.
+
+## Podpunkt B - Przygotowanie danych
+
+Przygotowanie danych:
+
+```{r, echo=FALSE}
+library(dplyr)
+
+dane_cale_2 <- read.csv(file="/Users/kowalski/Desktop/dane_lista2_2.csv", stringsAsFactors = FALSE)
+
+
+# usuwamy pierwszą kolumnę (ID)
+dane_2 <- dane_cale_2[, -1]
+
+# wybór zmiennych ilościowych
+dane_2_num <- select_if(dane_2, is.numeric)
+
+# sprawdzenie braków
+czy_sa_na <- is.na(dane_2_num)
+  #unique(czy_sa_na)  # brak NA
+
+# obliczenie wariancji
+wariancje <- sapply(dane_2_num, var)
+
+```
+
+
+```{r, echo=FALSE, results='asis'}
+library(knitr)
+
+df_var <- data.frame(
+  Zmienna   = names(wariancje),
+  Wariancja = as.numeric(wariancje)
+)
+
+# 2. Wyświetlenie tabeli
+kable(
+  df_var,
+  caption   = "Wariancje cech ilościowych",
+  col.names = c("Zmienna", "Wariancja"),
+  digits    = 3,
+  align     = c("l", "r")
+)
+```
+
+
+  **Wnioski**: 
+  
+  Wariancje cech są różne, zatem potrzebna jest standaryzacja. 
+  
+```{r, echo=FALSE}
+library(tidyr)
+library(ggplot2)
+
+dane_long <- pivot_longer(as.data.frame(dane_2_num),
+                          cols = everything(),
+                          names_to = "Zmienna",
+                          values_to = "Wartość")
+
+ggplot(dane_long, aes(x = Zmienna, y = Wartość)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Boxploty cech ilosciowych", x = "", y = "Wartosc")
+
+# standaryzacja
+dane_standaryzowane <- as.data.frame(scale(dane_2_num))
+
+dane_long2 <- pivot_longer(dane_standaryzowane,
+                           cols = everything(),
+                           names_to = "Zmienna",
+                           values_to = "Wartość")
+
+ggplot(dane_long2, aes(x = Zmienna, y = Wartość)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Boxploty cech po standaryzacji", x = "", y = "Wartość")
+```
+
+## Podpunkt C -  Wyznaczenie składowych głównych
+
+```{r, echo=FALSE, results='asis'}
+
+pca <- prcomp(dane_standaryzowane)
+library(knitr)
+
+imp <- summary(pca)$importance
+
+df_imp <- as.data.frame(t(imp))
+colnames(df_imp) <- c("SD", "Prop. Variance", "Cum. Variance")
+df_imp <- cbind(PC = rownames(df_imp), df_imp)
+
+kable(
+  df_imp,
+  digits    = 3,
+  caption   = "Podsumowanie PCA – ważność składowych",
+  col.names = c("PC", "Standard Deviation", "Proportion of Variance", "Cumulative Variance"),
+  align     = c("l", "r", "r", "r")
+)
+```
+
+
+
+```{r, echo=FALSE}
+pca_data <- as.data.frame(pca$x)
+pca_long <- pivot_longer(pca_data,
+                         cols = everything(),
+                         names_to = "Składowa",
+                         values_to = "Wartość")
+
+ggplot(pca_long, aes(x = Składowa, y = Wartość)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Rozrzut składowych głównych (PCA)", x = "", y = "Wartosc")
+```
+
+
+
+
+```{r, echo=FALSE, results='asis'}
+
+library(knitr)
+
+get_top_loadings <- function(pc, n = 3) {
+  df <- data.frame(
+    Variable = rownames(pca$rotation),
+    Loading  = pca$rotation[, pc]
+  )
+  df$AbsLoading <- abs(df$Loading)
+  df <- df[order(-df$AbsLoading), ][1:n, ]
+  df$PC <- pc
+  df[c("PC", "Variable", "Loading")]
+}
+
+top_loads <- do.call(rbind, lapply(paste0("PC", 1:5), get_top_loadings, n = 3))
+
+kable(
+  top_loads,
+  digits    = 3,
+  caption   = "Top 3 zmienne wg wkładów (loadings) dla pierwszych 5 składowych",
+  col.names = c("Składowa", "Zmienna", "Ładunek")
+)
+```
+
+
+
+  **Interpretacja:** 
+
+  - **PC1** – rozwój ekonomiczny i koszty życia (Housing, Cost of Living, Startups)
+  
+	- **PC2** – jakość życia: bezpieczeństwo i zdrowie (Safety, Healthcare, Environmental Quality)
+	
+	- **PC3** – rekreacja i kultura (Leisure & Culture, Tolerance, Outdoors)
+	
+	
+## Podpunkt D - Udział wariancji
+
+```{r, echo=FALSE}
+wariancja <- pca$sdev^2
+procent_wyjasnionej <- wariancja / sum(wariancja)
+skumulowana_wariancja <- cumsum(procent_wyjasnionej)
+```
+
+
+```{r, echo=FALSE, results='asis'}
+df_var <- data.frame(
+  Składowa         = paste0("PC", seq_along(wariancja)),
+  Wariancja        = wariancja,
+  `Udział wariancji`      = procent_wyjasnionej,
+  `Skumulowany udział` = skumulowana_wariancja
+)
+
+# 3. Wyświetlenie tabeli
+kable(
+  df_var,
+  digits    = 3,
+  caption   = "Udział wyjaśnionej wariancji dla kolejnych składowych PCA",
+  col.names = c("Składowa", "Wariancja", "Udział wariancji", "Skumulowany udział"),
+  align     = c("l", "r", "r", "r")
+)
+
+```
+
+  **Wmioski:**
+  
+  - Pierwsze `r which(skumulowana_wariancja >= 0.8)` składowych wyjaśnia > 80% wariancji.
+  
+  - Pierwsze `r which(skumulowana_wariancja >= 0.9)` składowych wyjaśnia > 90% wariancji.
+  
+## Podpunkt E - Wizualizacja danych w przestrzeni PC
+
+  
+```{r, echo=FALSE}
+
+library(ggplot2)
+
+ggplot(pca_data, aes(x = PC1, y = PC2)) +
+  geom_point() +
+  geom_text(aes(label = rownames(pca_data)), vjust = 1.5, size = 3) +
+  labs(title = "Wizualizacja: PC1 vs PC2",
+       x = "Pierwsza składowa (PC1)",
+       y = "Druga składowa (PC2)") +
+  theme_minimal()
+
+library(factoextra)
+
+fviz_pca_biplot(pca, repel = TRUE)
+```
+
+
+## Podpunkt F - Korelacja zmiennych 
+
+
+```{r, echo=FALSE, results='asis'}
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(knitr)
+
+corr_mat <- cor(dane_standaryzowane)
+
+df_corr <- as.data.frame(corr_mat) %>%
+  rownames_to_column("Zmienna1") %>%
+  pivot_longer(-Zmienna1, names_to = "Zmienna2", values_to = "r") %>%
+  filter(Zmienna1 < Zmienna2) %>%
+  arrange(desc(abs(r))) %>%
+  slice(1:10)  # top 10 wg |r|
+
+kable(
+  df_corr,
+  digits    = 2,
+  col.names = c("Zmienna 1", "Zmienna 2", "Współczynnik r"),
+  caption   = "Top 10 najsilniejszych korelacji między cechami"
+)
+```
+
+
+  **Wnioski**:
+  
+  Analiza dwuwykresu (biplot) potwierdza zależności widoczne w macierzy korelacji – np. silna korelacja między zmiennymi X i Y.
+  
+  
+## Podsumowanie
+
+Wyniki PCA pokazują, że trzy główne składowe opisują kolejno: rozwój ekonomiczny, bezpieczeństwo życia oraz walory kulturalno-rekreacyjne miast. Standaryzacja była kluczowa dla poprawnej interpretacji, a do wyjaśnienia 80–90% wariancji wystarczało 2–3 składowe.
+
+
+# Zadanie 3:
+
+## Podpunkt A - Dane 
+
+Zbiór `titanic_train` z pakietu **titanic** zawiera informacje o pasażerach Titanica oraz zmienną `Survived`.
+
+## Podpuntk B - Przygotowanie danych 
+
+```{r}
+library(titanic)
+
+dane_tytanik <- titanic_train
+
+  #zmiana na facotry 
+
+dane_tytanik$Survived <- as.factor(dane_tytanik$Survived)
+dane_tytanik$Pclass <- as.factor(dane_tytanik$Pclass)
+dane_tytanik$Sex <- as.factor(dane_tytanik$Sex)
+dane_tytanik$Embarked <- as.factor(dane_tytanik$Embarked)
+
+dane_tytanik <- subset(dane_tytanik, select = -c(PassengerId, Name, Ticket, Cabin))
+
+dane_tytanik_clean <- dane_tytanik[complete.cases(dane_tytanik), ]
+
+```
+
+Ponieważ metoda MDS wymaga pełnych danych, a celem jest rzetelna analiza struktury wielowymiarowej, usunięcie obserwacji z brakującymi wartościami gwarantuje spójność i porównywalność wszystkich przypadków, nawet kosztem redukcji liczebności próby.
+
+Po usunięciu brakujących danych, pozostało 712 pełnych obserwacji (z 891).
+
+## Podpunkt C - Redukcja wymiaru na bazie MDS
+
+  1. **Redukcja wymiaru:** 
+  
+```{r}
+# 1. Przygotowanie danych do MDS
+dane_bez_survived        <- dane_tytanik_clean[, !(names(dane_tytanik_clean)
+                                                   %in% "Survived")]
+dane_bez_survived_nodup  <- dane_bez_survived[!duplicated(dane_bez_survived), ]
+
+# 2. Macierz odmienności
+library(cluster)
+dys_mat          <- daisy(dane_bez_survived_nodup)
+dys_mat_matrix   <- as.matrix(dys_mat)
+
+# 3. Skalowanie niemetryczne (SMACOF) w 2D
+library(smacof)
+mds_smacof <- mds(dys_mat, ndim = 2)
+```
+
+
+  2. **Diagram Sheparda**- ocena jakosci odwzorowania:
+  
+```{r, echo=FALSE}
+plot(mds_smacof, plot.type = "Shepard")
+```
+
+
+  3. **Wnioski:**
+  
+  - Punkty blisko linii y = x w Shepard plot świadczą o dobrej reprodukcji odmienności w wymiarze 2.
+  
+  
+## Podpunkt D - Wizualizacja danych  
+
+```{r, echo=FALSE}
+library(ggplot2)
+
+# 1. Wyciągnięcie konfiguracji i indeksów
+coords   <- mds_smacof$conf
+keep_idx <- which(!duplicated(dane_bez_survived))
+
+# 2. Przygotowanie ramki z dodatkowymi zmiennymi
+plot_data <- data.frame(
+  Dim1     = coords[,1],
+  Dim2     = coords[,2],
+  Survived = dane_tytanik_clean$Survived[keep_idx],
+  Sex      = dane_tytanik_clean$Sex[keep_idx],
+  Pclass   = dane_tytanik_clean$Pclass[keep_idx]
+)
+
+# 3. Wykres 2D wg Survived
+ggplot(plot_data, aes(x = Dim1, y = Dim2, color = Survived)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "MDS (2D) – grupowanie wg Survived",
+       x = "Wymiar 1", y = "Wymiar 2") +
+  theme_minimal()
+
+# 4. Wykres 2D wg płci (Sex)
+ggplot(plot_data, aes(x = Dim1, y = Dim2, color = Sex)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "MDS (2D) – grupowanie wg płci (Sex)",
+       x = "Wymiar 1", y = "Wymiar 2") +
+  theme_minimal()
+
+# 5. Wykres 2D wg klasy pasażerskiej (Pclass)
+ggplot(plot_data, aes(x = Dim1, y = Dim2, color = Pclass)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "MDS (2D) – grupowanie wg klasy pasazerskiej (Pclass)",
+       x = "Wymiar 1", y = "Wymiar 2") +
+  theme_minimal()
+```
+
+
+  **WNIOSKI**:
+  
+  - Grupy według Survived pokazują częściową separację, ale nie wyraźny podział.
+  
+  - Podziały wg Sex i Pclass również uwidaczniają pewne skupiska.
+  
+  - Obserwacje odstające mogą wskazywać nietypowe kombinacje cech (np. wysoka opłata + duża liczba członków rodziny).
